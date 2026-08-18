@@ -4,6 +4,10 @@ Unofficial low-level Haskell client for the Google Gemini API (also known as Gen
 
 This library provides a type-safe way to interact with Google's Gemini API services directly from your Haskell code.
 
+# 🚧 Notice
+
+This repository is not maintained for now. Contact me if someone wants to take over. It seems there are alternatives to call Gemini chat completion API, such as [louter](https://hackage.haskell.org/package/louter).
+
 ## Note
 - The code is **automatically generated** from the OpenAPI specification using [openapi-generator](https://openapi-generator.tech/).
 - APIs include text/image/audio generation, embeddings, model tuning, semantic retrieval API, and more. See [Google API reference](https://ai.google.dev/api) for full details.
