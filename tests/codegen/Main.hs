@@ -119,6 +119,16 @@ main = hspec $ do
       enumCtor "CandidateFinishReason" "FINISH_REASON_UNSPECIFIED" `shouldBe` "CandidateFinishReasonFinishReasonUnspecified"
       enumCtor "Foo" "1D" `shouldBe` "FooX1d"
 
+  describe "Analyse.fieldOf enum zero-value detection is case-insensitive" $ do
+    let enumProp vs d = Property (Just "string") Nothing Nothing Nothing vs [] Nothing d False
+        shape = fmap (\(f, _) -> (fType f, fPresence f))
+    it "a lowercase zero value (e.g. \"unspecified\") still defaults, not Maybe" $
+      shape (fieldOf ResponseOnly "X" "tier" (enumProp ["unspecified", "standard"] "Tier."))
+        `shouldBe` Right ("XTier", Defaulted "XTierUnspecified")
+    it "no zero value at all keeps the conservative Maybe fallback" $
+      shape (fieldOf ResponseOnly "X" "level" (enumProp ["ALPHA", "BETA"] "Level."))
+        `shouldBe` Right ("Maybe XLevel", Optional)
+
   describe "Analyse.typeDefOf" $
     it "orders fields alphabetically and collects enums" $ do
       td <- either fail pure (typeDefOf dirs (docSchemas doc Map.! "Pong"))

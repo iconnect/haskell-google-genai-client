@@ -195,7 +195,7 @@ elemOf sid pname p
         | not (null (propEnum p)) ->
             let ety = enumTypeName sid pname
                 ctors = [(enumCtor ety v, v, d) | (v, d) <- zip (propEnum p) (propEnumDescriptions p ++ repeat "")]
-                kind = case [c | (c, v, _) <- ctors, "UNSPECIFIED" `T.isSuffixOf` v] of
+                kind = case [c | (c, v, _) <- ctors, "UNSPECIFIED" `T.isSuffixOf` T.toUpper v] of
                   (c : _) -> KScalar c
                   [] -> KNoDefault
              in Right (ety, WPlain, kind, [EnumDef ety (propDescription p) ctors])
