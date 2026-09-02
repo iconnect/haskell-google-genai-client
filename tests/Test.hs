@@ -5,6 +5,7 @@ import Test.Hspec.QuickCheck (modifyMaxSize)
 
 import qualified Fixtures
 import qualified Instances
+import qualified Live
 import qualified Run
 import qualified Url
 import qualified Wire
@@ -24,3 +25,4 @@ main = hspec $ modifyMaxSize (const 8) $ do
   Url.spec
   Instances.roundTripSpecs
   Fixtures.spec
+  Live.spec
