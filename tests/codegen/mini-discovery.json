@@ -1,0 +1,82 @@
+{
+  "revision": "20260101",
+  "schemas": {
+    "Ping": {
+      "id": "Ping",
+      "type": "object",
+      "description": "A ping request.",
+      "properties": {
+        "text": {"type": "string", "description": "Optional. Some text."},
+        "temperature": {"type": "number", "format": "float", "description": "Optional. Sampling temperature."},
+        "tags": {"type": "array", "items": {"type": "string"}, "description": "Tags."},
+        "model": {"type": "string", "description": "Required. The model."},
+        "shared": {"$ref": "Shared", "description": "Shared thing."}
+      }
+    },
+    "Pong": {
+      "id": "Pong",
+      "type": "object",
+      "description": "A pong response.",
+      "properties": {
+        "count": {"type": "integer", "format": "int32", "description": "Output only. A count."},
+        "big": {"type": "string", "format": "int64", "description": "A big number."},
+        "state": {"type": "string", "enum": ["STATE_UNSPECIFIED", "ACTIVE"], "enumDescriptions": ["Default.", "Live."], "description": "Optional. Output only. State."},
+        "usage": {"$ref": "Usage", "description": "Output only. Usage."},
+        "createTime": {"type": "string", "format": "google-datetime", "description": "Created."},
+        "meta": {"type": "object", "additionalProperties": {"type": "any"}, "description": "Struct."},
+        "shared": {"$ref": "Shared", "description": "Shared thing."}
+      }
+    },
+    "Usage": {
+      "id": "Usage",
+      "type": "object",
+      "description": "Usage.",
+      "properties": {"total": {"type": "integer", "format": "int32", "description": "Total."}}
+    },
+    "Shared": {
+      "id": "Shared",
+      "type": "object",
+      "description": "Used both ways.",
+      "properties": {"role": {"type": "string", "description": "Role."}}
+    },
+    "Empty": {"id": "Empty", "type": "object", "description": "Empty.", "properties": {}},
+    "Unused": {"id": "Unused", "type": "object", "description": "Never referenced.", "properties": {}}
+  },
+  "resources": {
+    "models": {
+      "methods": {
+        "ping": {
+          "id": "generativelanguage.models.ping",
+          "path": "v1beta/{+model}:ping",
+          "httpMethod": "POST",
+          "description": "Pings a model.",
+          "parameters": {"model": {"type": "string", "location": "path", "required": true, "pattern": "^models/[^/]+$"}},
+          "parameterOrder": ["model"],
+          "request": {"$ref": "Ping"},
+          "response": {"$ref": "Pong"}
+        },
+        "list": {
+          "id": "generativelanguage.models.list",
+          "path": "v1beta/models",
+          "httpMethod": "GET",
+          "description": "Lists models.",
+          "parameters": {"pageSize": {"type": "integer", "format": "int32", "location": "query"}},
+          "response": {"$ref": "Pong"}
+        }
+      }
+    },
+    "files": {
+      "methods": {
+        "delete": {
+          "id": "generativelanguage.files.delete",
+          "path": "v1beta/{+name}",
+          "httpMethod": "DELETE",
+          "description": "Deletes a file.",
+          "parameters": {"name": {"type": "string", "location": "path", "required": true}},
+          "parameterOrder": ["name"],
+          "response": {"$ref": "Empty"}
+        }
+      }
+    }
+  }
+}

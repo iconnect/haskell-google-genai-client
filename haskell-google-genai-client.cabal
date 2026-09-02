@@ -63,6 +63,11 @@ executable genai-codegen
   hs-source-dirs:   codegen
   main-is:          Main.hs
   default-language: GHC2021
+  other-modules:
+    Analyse
+    Discovery
+    Emit
+
   build-depends:
     , aeson
     , base
@@ -81,6 +86,11 @@ test-suite codegen-tests
   hs-source-dirs:   tests/codegen codegen
   main-is:          Main.hs
   default-language: GHC2021
+  other-modules:
+    Analyse
+    Discovery
+    Emit
+
   build-depends:
     , aeson
     , base
