@@ -42,6 +42,7 @@ library
   default-language: GHC2021
   exposed-modules:
     GenAI.Client.API
+    GenAI.Client.Files
     GenAI.Client.Model
     GenAI.Client.Run
     GenAI.Client.Types
@@ -125,8 +126,9 @@ test-suite tests
     , http-client
     , http-client-tls
     , katip
-      -- Lower bound: first version known to provide Arbitrary (Map k v),
-      -- which Instances.hs relies on (it emits no such instance itself).
+      -- Lower bound: a known-good floor for the Arbitrary (Map k v)
+      -- instance, which Instances.hs relies on (it emits no such instance
+      -- itself).
     , QuickCheck >=2.14.3 && <2.19
     , text
     , time

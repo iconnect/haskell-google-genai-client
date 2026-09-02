@@ -6,6 +6,7 @@ import Data.Aeson (decode, encode)
 import Data.Int (Int64)
 import Test.Hspec
 
+import GenAI.Client.Files (uploadBase)
 import GenAI.Client.Types
 
 spec :: Spec
@@ -39,3 +40,8 @@ spec = describe "wire helpers" $ do
       `shouldBe` "https://europe-west1-aiplatform.googleapis.com/v1"
     backendBaseUrl (vertexAi "p" "global")
       `shouldBe` "https://aiplatform.googleapis.com/v1"
+  it "uploadBase inserts the upload/ segment before the version" $ do
+    uploadBase "https://generativelanguage.googleapis.com/v1beta"
+      `shouldBe` "https://generativelanguage.googleapis.com/upload/v1beta"
+    uploadBase "https://example.test/proxy/v1beta"
+      `shouldBe` "https://example.test/proxy/upload/v1beta"
