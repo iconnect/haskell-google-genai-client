@@ -206,8 +206,12 @@ emitApi plan =
     , "{-# OPTIONS_GHC -Wno-unused-imports #-}"
     , ""
     , "-- | Endpoint constructors. Run them with 'GenAI.Client.Run.runRequest'."
-    , "-- Model arguments accept @gemini-2.5-flash@ or @models/gemini-2.5-flash@;"
-    , "-- other resource names are passed as Google returns them (@files/abc@)."
+    , "--"
+    , "-- 'generateContent', 'streamGenerateContent', 'countTokens', 'embedContent' and"
+    , "-- 'batchEmbedContents' are model-scoped: their model argument accepts a bare"
+    , "-- name (@gemini-2.5-flash@) or a @models/@-prefixed one (@models/gemini-2.5-flash@)."
+    , "-- Every other endpoint takes the full resource name exactly as Google returns"
+    , "-- it (e.g. @files/abc-123@); see each function's Haddock for its required format."
     , "module GenAI.Client.API where"
     , ""
     , "import Data.Aeson (toJSON)"
@@ -223,8 +227,12 @@ emitApi plan =
 emitEndpoint :: Endpoint -> [Text]
 emitEndpoint ep =
   queryDecl
-    ++ docComment ("@" <> epHttp ep <> " " <> epPath ep <> "@")
-    ++ docAfterLines (epDoc ep)
+    -- The @METHOD path@ line uses '@'/'/' as literal Haddock code-span
+    -- delimiters, so it must NOT go through the 'haddock' escaper (that
+    -- escaper would mangle the very characters that make it a code span).
+    -- No Discovery path contains an '@', so nothing here needs escaping.
+    ++ ["-- | @" <> epHttp ep <> " " <> epPath ep <> "@"]
+    ++ concatMap ("--" :) (filter (not . null) [descLines, paramLines])
     ++ [ epName ep <> " :: " <> T.concat (map (<> " -> ") argTypes) <> "Request " <> respTy
        , epName ep <> T.concat (map (" " <>) argNames) <> " ="
        , "  Request"
@@ -238,13 +246,29 @@ emitEndpoint ep =
        , ""
        ]
   where
-    -- 'docComment' already emits nothing for an empty first line, but that
-    -- line here is never empty (it always carries the HTTP verb and path);
-    -- the endpoint's Discovery description is the part that can be empty, so
-    -- it gets its own trailing @-- ^@-style line, suppressed the same way.
-    docAfterLines d
-      | T.null (T.strip d) = []
-      | otherwise = ["--", "-- " <> haddock d]
+    -- The endpoint's Discovery description: free text, so it does go
+    -- through the 'haddock' escaper. Suppressed entirely when empty, same
+    -- convention as 'docComment'/'docAfter'.
+    descLines
+      | T.null (T.strip (epDoc ep)) = []
+      | otherwise = ["-- " <> haddock (epDoc ep)]
+    -- One Haddock bullet per path parameter that carries a description or a
+    -- pattern, so a reader of e.g. 'getModel' sees the required resource-name
+    -- shape (Discovery's Format:/Example: prose plus its regex) without
+    -- leaving the module. The pattern is wrapped in its own literal '@...@'
+    -- code span and, like the METHOD/path line above, left unescaped.
+    paramLines = concatMap paramLine (epPathParamDocs ep)
+    paramLine p
+      | T.null (T.strip (ppdDescription p)) && ppdPattern p == Nothing = []
+      | otherwise = ["-- * @" <> ppdName p <> "@: " <> haddock (ppdDescription p) <> patternSuffix p]
+    -- The '@...@' delimiters stay unescaped (they're ours, not content), but
+    -- '/' inside the pattern itself is backslash-escaped: verified against a
+    -- real 'haddock' render that an un-escaped slash *pair* (every anchored
+    -- regex here has two, e.g. @^models/[^/]+$@) is parsed as emphasis even
+    -- inside a code span, italicising a chunk of the regex. Escaping only
+    -- '/' (not '[' ']', which trip Haddock's LaTeX-math detection instead)
+    -- was confirmed clean by the same manual render.
+    patternSuffix p = maybe "" (\pat -> " (pattern: @" <> T.replace "/" "\\/" pat <> "@)") (ppdPattern p)
     qName = upperFirst (epName ep) <> "Query"
     hasQuery = not (null (epQuery ep))
     argTypes = map (const "Text") (epPathParams ep) ++ [qName | hasQuery] ++ maybe [] pure (epBody ep)

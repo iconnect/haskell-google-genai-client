@@ -55,6 +55,16 @@ main = hspec $ do
       case parseDoc probe of
         Left err -> expectationFailure ("parseDoc failed: " ++ err)
         Right probeDoc -> methodResponse (docMethods probeDoc Map.! "x.noop") `shouldBe` Nothing
+    it "reads a path parameter's pattern (fix round 1)" $ do
+      let probe =
+            "{\"revision\": \"1\", \"schemas\": {}, \"resources\": {\"things\": {\"methods\": {\"get\": \
+            \{\"id\": \"x.get\", \"path\": \"v1/{+name}\", \"httpMethod\": \"GET\", \"parameters\": \
+            \{\"name\": {\"type\": \"string\", \"location\": \"path\", \"pattern\": \"^things/[^/]+$\"}}}}}}}"
+      case parseDoc probe of
+        Left err -> expectationFailure ("parseDoc failed: " ++ err)
+        Right probeDoc ->
+          paramPattern (methodParams (docMethods probeDoc Map.! "x.get") Map.! "name")
+            `shouldBe` Just "^things/[^/]+$"
 
   let methods = Map.elems (docMethods doc)
       dirs = directions doc methods
@@ -304,3 +314,44 @@ main = hspec $ do
       let bare = emitModel (Plan "R" [TypeDef "E" "" [] []] [] mempty)
       T.unpack bare `shouldContain` "data E = E"
       T.unpack bare `shouldNotContain` "-- | \n"
+
+  describe "Emit.emitApi (fix round 1)" $ do
+    let ep =
+          Endpoint
+            { epName = "getThing"
+            , epHttp = "GET"
+            , epPath = "v1beta/{+name}"
+            , epPathParams = ["name"]
+            , epPathParamDocs =
+                [PathParamDoc "name" "Required. The thing. Format: `things/{thing}`" (Just "^things/[^/]+$")]
+            , epResource = TplRaw [Param "name"]
+            , epQuery = []
+            , epBody = Nothing
+            , epResponse = Just "Thing"
+            , epAlt = Nothing
+            , epDoc = "Gets a thing."
+            }
+        out = T.unpack (emitApi (Plan "R" [] [ep] mempty))
+
+    it "the METHOD/path line is an unescaped Haddock code span" $
+      -- Finding 1: this line must NOT go through the escaper, or the '@'/'/'
+      -- delimiters that make it a code span would themselves get escaped.
+      out `shouldContain` "-- | @GET v1beta/{+name}@"
+
+    it "the free-text description is still escaped" $
+      out `shouldContain` "-- Gets a thing."
+
+    it "emits the path parameter's description and pattern" $ do
+      -- Finding 2b/2c: the description (free text) is escaped, so its
+      -- backtick and slash come back escaped. The pattern is its own code
+      -- span, unescaped at the '@' delimiters -- but its own '/' is still
+      -- backslash-escaped: a real Haddock render showed that an unescaped
+      -- slash *pair* (this pattern has two) is parsed as emphasis even
+      -- inside a code span, so the literal render needs the escape.
+      out `shouldContain` "-- * @name@: Required. The thing. Format: \\`things\\/{thing}\\`"
+      out `shouldContain` "(pattern: @^things\\/[^\\/]+$@)"
+
+    it "omits a path parameter's bullet when it has neither description nor pattern" $ do
+      let bareEp = ep {epPathParamDocs = [PathParamDoc "name" "" Nothing]}
+          bareOut = T.unpack (emitApi (Plan "R" [] [bareEp] mempty))
+      bareOut `shouldNotContain` "-- * @name@"

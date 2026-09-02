@@ -63,6 +63,7 @@ data Param = Param
   , paramLocation :: Text
   , paramRequired :: Bool
   , paramDescription :: Text
+  , paramPattern :: Maybe Text
   }
   deriving (Show)
 
@@ -94,6 +95,7 @@ instance FromJSON Param where
       <*> o .:? "location" .!= "query"
       <*> o .:? "required" .!= False
       <*> o .:? "description" .!= ""
+      <*> o .:? "pattern"
 
 instance FromJSON Method where
   parseJSON = withObject "Method" $ \o ->

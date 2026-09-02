@@ -27,6 +27,7 @@ module Analyse
   , Seg (..)
   , ResourceTpl (..)
   , QueryParam (..)
+  , PathParamDoc (..)
   , Endpoint (..)
   , Plan (..)
   , endpointOf
@@ -323,6 +324,16 @@ data QueryParam = QueryParam
   }
   deriving (Show, Eq)
 
+-- | A path parameter's documentation, for the per-parameter Haddock bullet on
+-- each endpoint (Discovery's 'description' -- typically a @Format:@ or
+-- @Example:@ sentence -- plus its 'pattern' regex, e.g. @^models\/[^\/]+$@).
+data PathParamDoc = PathParamDoc
+  { ppdName :: Text
+  , ppdDescription :: Text
+  , ppdPattern :: Maybe Text
+  }
+  deriving (Show, Eq)
+
 data Endpoint = Endpoint
   { epName :: Text
   , epHttp :: Text
@@ -330,6 +341,8 @@ data Endpoint = Endpoint
   -- ^ original Discovery path, for docs
   , epPathParams :: [Text]
   -- ^ in parameterOrder
+  , epPathParamDocs :: [PathParamDoc]
+  -- ^ same order as 'epPathParams', carrying Discovery's per-parameter docs
   , epResource :: ResourceTpl
   , epQuery :: [QueryParam]
   , epBody :: Maybe Text
@@ -384,6 +397,12 @@ endpointOf m = do
       name = fromMaybe short (Map.lookup (methodId m) fnNames)
       resource = maybe (TplRaw (parseTpl rest)) TplModel (T.stripPrefix "{+model}" rest)
       pathParams = [n | n <- methodParamOrder m, Just pr <- [Map.lookup n (methodParams m)], paramLocation pr == "path"]
+      pathParamDocs =
+        [ PathParamDoc n (paramDescription pr) (paramPattern pr)
+        | n <- methodParamOrder m
+        , Just pr <- [Map.lookup n (methodParams m)]
+        , paramLocation pr == "path"
+        ]
       query = [QueryParam n (name <> upperFirst (camel n)) (paramHs pr) | (n, pr) <- Map.toAscList (methodParams m), paramLocation pr == "query"]
   pure
     Endpoint
@@ -391,6 +410,7 @@ endpointOf m = do
       , epHttp = methodHttp m
       , epPath = methodPath m
       , epPathParams = pathParams
+      , epPathParamDocs = pathParamDocs
       , epResource = resource
       , epQuery = query
       , epBody = methodRequest m
