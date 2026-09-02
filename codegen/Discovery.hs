@@ -112,7 +112,7 @@ refOf o k = do
   sub <- o .:? k
   case sub of
     Nothing -> pure Nothing
-    Just (s :: Object) -> Just <$> s .: "$ref"
+    Just (s :: Object) -> s .:? "$ref"
 
 instance FromJSON Doc where
   parseJSON = withObject "Doc" $ \o -> do

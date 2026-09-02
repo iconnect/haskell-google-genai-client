@@ -42,3 +42,10 @@ main = hspec $ do
       let list = docMethods doc Map.! "generativelanguage.models.list"
       methodRequest list `shouldBe` Nothing
       paramLocation (methodParams list Map.! "pageSize") `shouldBe` "query"
+    it "yields Nothing for a response object with no $ref, instead of failing the whole parse" $ do
+      let probe =
+            "{\"revision\": \"1\", \"schemas\": {}, \"resources\": {\"things\": {\"methods\": {\"noop\": \
+            \{\"id\": \"x.noop\", \"path\": \"v1/noop\", \"httpMethod\": \"GET\", \"response\": {}}}}}}"
+      case parseDoc probe of
+        Left err -> expectationFailure ("parseDoc failed: " ++ err)
+        Right probeDoc -> methodResponse (docMethods probeDoc Map.! "x.noop") `shouldBe` Nothing
