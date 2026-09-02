@@ -9,6 +9,7 @@ module GenAI.Client.Run
   , authHeaders
   , performHttp
   , googleStatusOf
+  , redactedRequest
   ) where
 
 import Control.Exception (try)
@@ -17,6 +18,7 @@ import qualified Data.Aeson.KeyMap as KM
 import Data.Aeson.Types (parseJSON, parseMaybe)
 import qualified Data.ByteString.Lazy as LBS
 import Data.Maybe (fromMaybe, isJust)
+import qualified Data.Set as Set
 import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Text.Encoding (decodeUtf8, encodeUtf8)
@@ -62,11 +64,20 @@ googleStatusOf body = case decode body of
   Just (Object o) | Just err <- KM.lookup "error" o -> parseMaybe parseJSON err
   _ -> Nothing
 
+-- | Marks credential-bearing headers so http-client's 'Show' instance for
+-- 'HTTP.Request' redacts them. http-client only redacts @Authorization@ by
+-- default, which misses our @x-goog-api-key@ header — and an
+-- 'HTTP.HttpException' embeds the request verbatim, so an unredacted
+-- request would leak the API key into any log of that exception.
+redactedRequest :: HTTP.Request -> HTTP.Request
+redactedRequest r = r {HTTP.redactHeaders = Set.fromList ["Authorization", "x-goog-api-key"]}
+
 -- | Runs one prepared HTTP request: catches 'HTTP.HttpException', logs
 -- method/URL/status/duration at Debug, errors at Error, maps non-2xx to 'ApiError'.
 -- Bodies are never logged.
 performHttp :: Env -> HTTP.Request -> IO (Either GenAIError (HTTP.Response LBS.ByteString))
-performHttp env hreq = do
+performHttp env hreq0 = do
+  let hreq = redactedRequest hreq0
   t0 <- getMonotonicTime
   res <- try (HTTP.httpLbs hreq (envManager env))
   t1 <- getMonotonicTime
@@ -83,7 +94,7 @@ performHttp env hreq = do
         then pure (Right resp)
         else do
           let gs = googleStatusOf (HTTP.responseBody resp)
-          logAt ErrorS (desc <> " -> " <> T.pack (show st) <> maybe "" ((": " <>) . googleStatusMessage) gs)
+          logAt ErrorS (desc <> " -> " <> T.pack (show st) <> maybe "" ((": " <>) . googleStatusStatus) gs)
           pure (Left (ApiError st gs (HTTP.responseBody resp)))
   where
     logAt sev msg =

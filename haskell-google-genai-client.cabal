@@ -99,6 +99,7 @@ test-suite tests
   main-is:          Test.hs
   default-language: GHC2021
   other-modules:
+    Run
     Url
     Wire
   build-depends:
