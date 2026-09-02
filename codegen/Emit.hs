@@ -3,6 +3,7 @@
 -- | Renders a 'Plan' as Haskell source. Pure text; no pretty-printer.
 module Emit
   ( emitModel
+  , emitApi
   , header
   , haddock
   , quote
@@ -196,3 +197,84 @@ encoder f = case (fPresence f, fWire f) of
   where
     k = quote (fJson f)
     v = fName f
+
+emitApi :: Plan -> Text
+emitApi plan =
+  T.unlines $
+    [ header (planRevision plan)
+    , "{-# LANGUAGE OverloadedStrings #-}"
+    , "{-# OPTIONS_GHC -Wno-unused-imports #-}"
+    , ""
+    , "-- | Endpoint constructors. Run them with 'GenAI.Client.Run.runRequest'."
+    , "-- Model arguments accept @gemini-2.5-flash@ or @models/gemini-2.5-flash@;"
+    , "-- other resource names are passed as Google returns them (@files/abc@)."
+    , "module GenAI.Client.API where"
+    , ""
+    , "import Data.Aeson (toJSON)"
+    , "import Data.Maybe (catMaybes)"
+    , "import Data.Text (Text)"
+    , ""
+    , "import GenAI.Client.Model"
+    , "import GenAI.Client.Types"
+    , ""
+    ]
+      ++ concatMap emitEndpoint (planEndpoints plan)
+
+emitEndpoint :: Endpoint -> [Text]
+emitEndpoint ep =
+  queryDecl
+    ++ docComment ("@" <> epHttp ep <> " " <> epPath ep <> "@")
+    ++ docAfterLines (epDoc ep)
+    ++ [ epName ep <> " :: " <> T.concat (map (<> " -> ") argTypes) <> "Request " <> respTy
+       , epName ep <> T.concat (map (" " <>) argNames) <> " ="
+       , "  Request"
+       , "    { reqMethod = " <> quote (epHttp ep)
+       , "    , reqResource = " <> resourceExpr
+       , "    , reqQuery = " <> queryExpr
+       , "    , reqBody = " <> maybe "Nothing" (const "Just (toJSON body)") (epBody ep)
+       , "    , reqAlt = " <> maybe "Nothing" (\a -> "Just " <> quote a) (epAlt ep)
+       , "    , reqDecode = " <> maybe "\\_ -> Right ()" (const "decodeJsonBody") (epResponse ep)
+       , "    }"
+       , ""
+       ]
+  where
+    -- 'docComment' already emits nothing for an empty first line, but that
+    -- line here is never empty (it always carries the HTTP verb and path);
+    -- the endpoint's Discovery description is the part that can be empty, so
+    -- it gets its own trailing @-- ^@-style line, suppressed the same way.
+    docAfterLines d
+      | T.null (T.strip d) = []
+      | otherwise = ["--", "-- " <> haddock d]
+    qName = upperFirst (epName ep) <> "Query"
+    hasQuery = not (null (epQuery ep))
+    argTypes = map (const "Text") (epPathParams ep) ++ [qName | hasQuery] ++ maybe [] pure (epBody ep)
+    argNames = map ("p_" <>) (epPathParams ep) ++ ["query" | hasQuery] ++ ["body" | Just _ <- [epBody ep]]
+    respTy = maybe "()" id (epResponse ep)
+    resourceExpr = case epResource ep of
+      TplModel verb -> "ModelMethod p_model " <> quote verb
+      TplRaw segs -> "RawPath (mconcat [" <> T.intercalate ", " (map segExpr segs) <> "])"
+    segExpr (Lit l) = quote l
+    segExpr (Param p) = "p_" <> p
+    queryExpr
+      | hasQuery =
+          "catMaybes ["
+            <> T.intercalate ", " [qFn (qpType q) <> " " <> quote (qpJson q) <> " (" <> qpField q <> " query)" | q <- epQuery ep]
+            <> "]"
+      | otherwise = "[]"
+    qFn "Int" = "qInt"
+    qFn "Bool" = "qBool"
+    qFn _ = "qText"
+    queryDecl
+      | not hasQuery = []
+      | otherwise =
+          [ "-- | Optional query parameters of '" <> epName ep <> "'."
+          , "data " <> qName <> " = " <> qName
+          ]
+            ++ numbered "  { " "  , " [qpField q <> " :: !(Maybe " <> qpType q <> ")" | q <- epQuery ep]
+            ++ [ "  }"
+               , "  deriving (Show, Eq)"
+               , ""
+               , "mk" <> qName <> " :: " <> qName
+               , "mk" <> qName <> " = " <> qName <> T.concat (map (const " Nothing") (epQuery ep))
+               , ""
+               ]

@@ -41,6 +41,7 @@ library
   hs-source-dirs:   lib
   default-language: GHC2021
   exposed-modules:
+    GenAI.Client.API
     GenAI.Client.Model
     GenAI.Client.Run
     GenAI.Client.Types

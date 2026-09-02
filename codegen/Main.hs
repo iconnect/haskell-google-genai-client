@@ -47,6 +47,7 @@ main = do
     ["--spec", spec, "--lib", lib, "--tests", _tests] -> do
       plan <- loadPlan spec
       write (lib </> "GenAI" </> "Client" </> "Model.hs") (emitModel plan)
+      write (lib </> "GenAI" </> "Client" </> "API.hs") (emitApi plan)
       putStrLn ("generated from revision " <> T.unpack (planRevision plan))
     _ -> die "usage: genai-codegen --spec FILE --lib DIR --tests DIR"
 
