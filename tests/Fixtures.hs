@@ -60,4 +60,7 @@ spec = describe "fixtures" $ do
     r <- decodeOrFail "list_models.json"
     map modelName (listModelsResponseModels r) `shouldBe` ["models/gemini-2.5-flash"]
     map modelTopK (listModelsResponseModels r) `shouldBe` [64]
+    -- baseModelId is Required. and absent from the fixture: pins the
+    -- lenient-decoding rule (proto3 default, not a parse failure).
+    map modelBaseModelId (listModelsResponseModels r) `shouldBe` [""]
     listModelsResponseNextPageToken r `shouldBe` ""

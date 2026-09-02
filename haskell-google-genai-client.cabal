@@ -21,6 +21,8 @@ tested-with:        GHC ==9.6.7 || ==9.10.3
 extra-source-files:
   README.md
   spec/generativelanguage-v1beta.json
+  tests/codegen/mini-discovery.json
+  tests/fixtures/*.json
 
 source-repository head
   type:     git
