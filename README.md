@@ -31,7 +31,7 @@ caller's job (`gcloud auth print-access-token`, ADC, …).
 
 `generateContent`, `streamGenerateContent`, `countTokens`, `embedContent` and
 `batchEmbedContents` are model-scoped: their model argument accepts a bare
-name (`gemini-2.5-flash`) or a `models/`-prefixed one, and they work on both
+name (`gemini-3.6-flash`) or a `models/`-prefixed one, and they work on both
 backends. Every other generated endpoint — `getModel`, `listModels`, and all
 of `Files` and `CachedContent` — takes the full resource name exactly as
 Google returns it (e.g. `files/abc-123`), and is Gemini-API-only: calling one
@@ -53,8 +53,8 @@ main = do
   let env = Env mgr geminiApi (ApiKey "<GEMINI_API_KEY>") logEnv
       content = mkContent { contentParts = [mkPart { partText = Just "What is the capital of Korea?" }]
                           , contentRole = Just "user" }
-      body = mkGenerateContentRequest [content] "gemini-2.5-flash"
-  r <- runRequest env (generateContent "gemini-2.5-flash" body)
+      body = mkGenerateContentRequest [content] "gemini-3.6-flash"
+  r <- runRequest env (generateContent "gemini-3.6-flash" body)
   case r of
     Left err -> print err
     Right resp -> do

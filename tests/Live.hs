@@ -10,6 +10,13 @@ import Test.Hspec
 
 import GenAI.Client
 
+-- | The model this test calls. Google retires model names on its own
+-- schedule and returns 404 with a replacement named in the message, so the
+-- default is a moving target rather than a fact about this library. Override
+-- it with @GEMINI_TEST_MODEL@ instead of editing this file.
+defaultTestModel :: T.Text
+defaultTestModel = "gemini-3.6-flash"
+
 spec :: Spec
 spec = describe "live (needs GEMINI_API_KEY)" $ do
   key <- runIO (lookupEnv "GEMINI_API_KEY")
@@ -18,10 +25,11 @@ spec = describe "live (needs GEMINI_API_KEY)" $ do
     Just k -> it "generateContent returns one candidate and usage" $ do
       mgr <- newTlsManager
       logEnv <- initLogEnv "genai-test" "test"
+      model <- maybe defaultTestModel T.pack <$> lookupEnv "GEMINI_TEST_MODEL"
       let env = Env mgr geminiApi (ApiKey (T.pack k)) logEnv
           content = mkContent {contentParts = [mkPart {partText = Just "Reply with the single word pong"}], contentRole = Just "user"}
-          body = mkGenerateContentRequest [content] "gemini-2.5-flash"
-      r <- runRequest env (generateContent "gemini-2.5-flash" body)
+          body = mkGenerateContentRequest [content] model
+      r <- runRequest env (generateContent model body)
       case r of
         Left e -> expectationFailure (show e)
         Right resp -> do
