@@ -7,7 +7,7 @@ import qualified Data.Text as T
 import qualified Network.HTTP.Client as HTTP
 import Test.Hspec
 
-import GenAI.Client.Run (authHeaders, googleStatusOf, redactedRequest, redactedUri)
+import GenAI.Client.Run (authHeaders, googleStatusOf, redactedRequest, redactedUri, sanitiseHttpException)
 import GenAI.Client.Types
 
 spec :: Spec
@@ -32,6 +32,16 @@ spec = do
       let logged = redactedUri req
       logged `shouldNotSatisfy` (T.isInfixOf "supersecret")
       logged `shouldBe` "https://example.com/upload/v1beta/files/abc"
+
+  describe "sanitiseHttpException" $ do
+    it "blanks the query string embedded in an HttpExceptionRequest, but keeps host and path" $ do
+      req <- HTTP.parseRequest "https://example.com/upload/v1beta/files/abc?upload_id=supersecret"
+      let e = HTTP.HttpExceptionRequest req HTTP.ConnectionTimeout
+          shown = show (sanitiseHttpException e)
+      shown `shouldNotSatisfy` ("supersecret" `isInfixOf`)
+      shown `shouldNotSatisfy` ("upload_id" `isInfixOf`)
+      shown `shouldSatisfy` ("example.com" `isInfixOf`)
+      shown `shouldSatisfy` ("/upload/v1beta/files/abc" `isInfixOf`)
 
   describe "googleStatusOf" $ do
     it "parses the error object out of a Google error body" $

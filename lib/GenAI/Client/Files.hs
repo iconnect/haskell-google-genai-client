@@ -21,6 +21,7 @@ module GenAI.Client.Files
   , uploadBase
   ) where
 
+import Control.Exception (try)
 import Data.Aeson (eitherDecode, encode)
 import qualified Data.ByteString.Char8 as B8
 import qualified Data.ByteString.Lazy as LBS
@@ -31,7 +32,7 @@ import qualified Network.HTTP.Client as HTTP
 import Network.HTTP.Types (hContentType)
 
 import GenAI.Client.Model
-import GenAI.Client.Run (authHeaders, performHttp)
+import GenAI.Client.Run (authHeaders, performHttp, sanitiseHttpException)
 import GenAI.Client.Types
 
 -- | What to upload: the raw bytes, their MIME type, and an optional display
@@ -75,43 +76,57 @@ uploadFile env spec = case envBackend env of
             mkCreateFileRequest
               { createFileRequestFile = Just mkFile {fileDisplayName = uploadDisplayName spec}
               }
-      r0 <- HTTP.parseRequest (T.unpack (base' <> "/files"))
-      started <-
-        performHttp
-          env
-          r0
-            { HTTP.method = "POST"
-            , HTTP.requestHeaders =
-                auth
-                  ++ [ ("X-Goog-Upload-Protocol", "resumable")
-                     , ("X-Goog-Upload-Command", "start")
-                     , ("X-Goog-Upload-Header-Content-Length", len)
-                     , ("X-Goog-Upload-Header-Content-Type", encodeUtf8 (uploadMimeType spec))
-                     , (hContentType, "application/json")
-                     ]
-            , HTTP.requestBody = HTTP.RequestBodyLBS (encode startBody)
-            }
-      case started of
-        Left e -> pure (Left e)
-        Right resp -> case lookup "x-goog-upload-url" (HTTP.responseHeaders resp) of
-          Nothing -> pure (Left (DecodeError "missing x-goog-upload-url header" (HTTP.responseBody resp)))
-          Just uploadUrl -> do
-            r1 <- HTTP.parseRequest (B8.unpack uploadUrl)
-            finished <-
-              performHttp
-                env
-                r1
-                  { HTTP.method = "POST"
-                  , HTTP.requestHeaders =
-                      auth
-                        ++ [ ("X-Goog-Upload-Offset", "0")
-                           , ("X-Goog-Upload-Command", "upload, finalize")
-                           ]
-                  , HTTP.requestBody = HTTP.RequestBodyLBS (uploadBytes spec)
-                  }
-            pure $ case finished of
-              Left e -> Left e
-              Right resp2 -> case eitherDecode (HTTP.responseBody resp2) of
-                Left err -> Left (DecodeError (T.pack err) (HTTP.responseBody resp2))
-                Right CreateFileResponse {createFileResponseFile = Just f} -> Right f
-                Right _ -> Left (DecodeError "upload response carries no file" (HTTP.responseBody resp2))
+      r0try <- try (HTTP.parseRequest (T.unpack (base' <> "/files")))
+      case r0try of
+        Left e -> pure (Left (HttpError (sanitiseHttpException e)))
+        Right r0 -> do
+          started <-
+            performHttp
+              env
+              r0
+                { HTTP.method = "POST"
+                , HTTP.requestHeaders =
+                    auth
+                      ++ [ ("X-Goog-Upload-Protocol", "resumable")
+                         , ("X-Goog-Upload-Command", "start")
+                         , ("X-Goog-Upload-Header-Content-Length", len)
+                         , ("X-Goog-Upload-Header-Content-Type", encodeUtf8 (uploadMimeType spec))
+                         , (hContentType, "application/json")
+                         ]
+                , HTTP.requestBody = HTTP.RequestBodyLBS (encode startBody)
+                }
+          case started of
+            Left e -> pure (Left e)
+            Right resp -> case lookup "x-goog-upload-url" (HTTP.responseHeaders resp) of
+              Nothing -> pure (Left (DecodeError "missing x-goog-upload-url header" (HTTP.responseBody resp)))
+              Just uploadUrl -> do
+                -- 'uploadUrl' is Google's x-goog-upload-url, which carries an
+                -- upload-session token in its query string. 'parseRequest'
+                -- can throw on it (a malformed/unexpected URL), and the
+                -- thrown 'HTTP.InvalidUrlException' embeds that URL verbatim
+                -- -- so it must go through 'sanitiseHttpException' the same
+                -- as any other HTTP exception before it becomes a
+                -- 'GenAIError', or the token would leak through this
+                -- function's `Left`.
+                r1try <- try (HTTP.parseRequest (B8.unpack uploadUrl))
+                case r1try of
+                  Left e -> pure (Left (HttpError (sanitiseHttpException e)))
+                  Right r1 -> do
+                    finished <-
+                      performHttp
+                        env
+                        r1
+                          { HTTP.method = "POST"
+                          , HTTP.requestHeaders =
+                              auth
+                                ++ [ ("X-Goog-Upload-Offset", "0")
+                                   , ("X-Goog-Upload-Command", "upload, finalize")
+                                   ]
+                          , HTTP.requestBody = HTTP.RequestBodyLBS (uploadBytes spec)
+                          }
+                    pure $ case finished of
+                      Left e -> Left e
+                      Right resp2 -> case eitherDecode (HTTP.responseBody resp2) of
+                        Left err -> Left (DecodeError (T.pack err) (HTTP.responseBody resp2))
+                        Right CreateFileResponse {createFileResponseFile = Just f} -> Right f
+                        Right _ -> Left (DecodeError "upload response carries no file" (HTTP.responseBody resp2))

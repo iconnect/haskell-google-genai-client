@@ -9,8 +9,13 @@ document (`spec/generativelanguage-v1beta.json`); the HTTP runtime is
 hand-written and logs through [Katip](https://hackage.haskell.org/package/katip).
 Supported GHCs: 9.6.7 and 9.10.3.
 
-Import `GenAI.Client` — it re-exports `GenAI.Client.Types`, `.Run`, `.Files`,
-`.Model` and `.API`, which is everything most callers need.
+Import `GenAI.Client` — it re-exports `GenAI.Client.Types` and
+`GenAI.Client.Model` and `GenAI.Client.API` wholesale, plus the curated
+entry points from the two hand-written runtime modules: `runRequest` and
+`runRequestRaw` from `.Run`, and `UploadSpec` and `uploadFile` from
+`.Files`. That covers everything most callers need; import `.Run` or
+`.Files` directly for their lower-level machinery (`buildUrl`,
+`authHeaders`, `performHttp`, `uploadBase`, ...).
 
 ## Backends and auth
 
@@ -130,6 +135,46 @@ name instead of the raw Discovery verb). Regenerate and commit
 `lib/GenAI/Client/Model.hs`, `lib/GenAI/Client/API.hs` and
 `tests/Instances.hs` together with the spec; none of the three is
 hand-edited.
+
+## Migrating from 0.1.x
+
+0.2.0 is a deliberate breaking rewrite — see `CHANGELOG.md`. There is no
+compatibility shim; every item below needs a call-site change.
+
+- **179 of 394 generated fields are no longer `Maybe`** (see "How optionality
+  works" above). Every `fromMaybe` or lens-based `Maybe`-unwrap at a call
+  site needs revisiting — some fields you used to default now just have a
+  value:
+
+  ```haskell
+  tokensUsed :: GenerateContentResponse -> Maybe Int
+  tokensUsed = fmap usageMetadataTotalTokenCount . generateContentResponseUsageMetadata
+  -- usageMetadataTotalTokenCount :: UsageMetadata -> Int, not Maybe Int:
+  -- UsageMetadata is response-only, so every scalar on it defaults on
+  -- decode instead of needing an explicit absent/zero distinction.
+  ```
+
+- **`GenAI.Client.Core`, `.Client`, `.MimeTypes`, `.ModelLens`, and the
+  generated lenses are gone.** Replacements:
+
+  | 0.1.x | 0.2.0 |
+  |---|---|
+  | `GenAI.Client.Core` (`GenAIClientConfig`, `newConfig`, `addAuthMethod`, `withStdoutLogging`, auth-method typeclasses) | `GenAI.Client.Types`: `Env`, `Backend`, `Auth` |
+  | `GenAI.Client.Client` (`dispatchLbs`, manual response decoding) | `GenAI.Client.Run`: `runRequest`, `runRequestRaw` |
+  | `GenAI.Client.MimeTypes` (`ContentType`, `Accept`, multipart helpers) | not needed — `GenAI.Client.Files.uploadFile` drives the resumable upload protocol itself |
+  | `GenAI.Client.ModelLens` / generated `microlens` lenses | plain record field accessors and record update on `Model.hs`'s types (see the `## Example` section above) |
+
+- **`dispatchLbs`/`newConfig`/`addAuthMethod`/`withStdoutLogging` are gone.**
+  Build an `Env` once (manager, `Backend`, `Auth`, Katip `LogEnv`) and pass
+  it to `runRequest` per call — see `## Example` above.
+
+- **Logging is Katip-only.** The old `UseKatip` cabal flag choosing between
+  Katip and `monad-logger` is removed; there is nothing to opt into or out
+  of, only a Katip `LogEnv` on `Env` (see `## Logging` above).
+
+- **File upload no longer shells out to `curl`.** `GenAI.Client.Files.uploadFile`
+  performs the two-step resumable upload (start, then upload+finalize)
+  itself; see `## Example` above.
 
 ## Not (yet) supported
 

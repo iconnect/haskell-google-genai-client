@@ -11,6 +11,7 @@ module GenAI.Client.Run
   , googleStatusOf
   , redactedRequest
   , redactedUri
+  , sanitiseHttpException
   ) where
 
 import Control.Exception (try)
@@ -85,10 +86,28 @@ redactedRequest r = r {HTTP.redactHeaders = Set.fromList ["Authorization", "x-go
 redactedUri :: HTTP.Request -> Text
 redactedUri = T.takeWhile (\c -> c /= '?' && c /= '#') . T.pack . show . HTTP.getUri
 
+-- | Blanks any URL-borne secret carried *inside* an 'HTTP.HttpException'
+-- itself, as opposed to one we log or embed ourselves. 'redactedRequest'
+-- and 'redactedUri' cover the request we build and the URL we log, but an
+-- 'HTTP.HttpException' thrown by http-client (from 'HTTP.httpLbs', or from
+-- 'HTTP.parseRequest' on a malformed URL) carries its own request/URL
+-- verbatim, query string included -- so a transport or parse failure on
+-- the Files upload's @x-goog-upload-url@ (session token in the query
+-- string) would otherwise leak that token both into the log line and into
+-- the 'GenAIError' returned to the caller. Used by 'performHttp' and by
+-- 'GenAI.Client.Files.uploadFile'.
+sanitiseHttpException :: HTTP.HttpException -> HTTP.HttpException
+sanitiseHttpException (HTTP.HttpExceptionRequest req content) =
+  HTTP.HttpExceptionRequest (redactedRequest req) {HTTP.queryString = ""} content
+sanitiseHttpException (HTTP.InvalidUrlException url reason) =
+  HTTP.InvalidUrlException (T.unpack (T.takeWhile (\c -> c /= '?' && c /= '#') (T.pack url))) reason
+
 -- | Runs one prepared HTTP request: catches 'HTTP.HttpException', logs
 -- method/URL/status/duration at Debug, errors at Error, maps non-2xx to 'ApiError'.
 -- Bodies are never logged. The logged URL omits its query string; see
--- 'redactedUri'.
+-- 'redactedUri'. A caught exception is passed through 'sanitiseHttpException'
+-- before it is shown or returned as 'HttpError', so it can't leak a
+-- URL-borne secret either.
 performHttp :: Env -> HTTP.Request -> IO (Either GenAIError (HTTP.Response LBS.ByteString))
 performHttp env hreq0 = do
   let hreq = redactedRequest hreq0
@@ -98,7 +117,8 @@ performHttp env hreq0 = do
   let ms = T.pack (show (round ((t1 - t0) * 1000) :: Int)) <> "ms"
       desc = decodeUtf8 (HTTP.method hreq) <> " " <> redactedUri hreq
   case res of
-    Left e -> do
+    Left e0 -> do
+      let e = sanitiseHttpException e0
       logAt ErrorS (desc <> " failed: " <> T.pack (show e))
       pure (Left (HttpError e))
     Right resp -> do

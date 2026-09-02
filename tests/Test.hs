@@ -3,6 +3,7 @@ module Main (main) where
 import Test.Hspec
 import Test.Hspec.QuickCheck (modifyMaxSize)
 
+import qualified Files
 import qualified Fixtures
 import qualified Instances
 import qualified Live
@@ -22,6 +23,7 @@ main :: IO ()
 main = hspec $ modifyMaxSize (const 8) $ do
   Wire.spec
   Run.spec
+  Files.spec
   Url.spec
   Instances.roundTripSpecs
   Fixtures.spec

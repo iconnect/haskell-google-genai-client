@@ -18,4 +18,8 @@ jobs:
       - run: cabal run -f codegen genai-codegen -- --check --spec spec/generativelanguage-v1beta.json
       - run: cabal test -f codegen codegen-tests
       - name: Generated files must match the committed ones
-        run: git diff --exit-code
+        run: |
+          git diff --exit-code || {
+            echo "::error::Generated files are out of date. Run: cabal run -f codegen genai-codegen -- --spec spec/generativelanguage-v1beta.json --lib lib --tests tests -- then commit the result."
+            exit 1
+          }
