@@ -7,7 +7,6 @@ import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 import Test.Hspec
 
-import Data.Text (Text)
 import qualified Data.Text as T
 
 import Analyse

@@ -3,6 +3,7 @@
 module Main (main) where
 
 import qualified Data.ByteString.Lazy as LBS
+import qualified Data.Map.Strict as Map
 import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Text.Encoding (encodeUtf8)
@@ -50,7 +51,30 @@ main = do
       write (lib </> "GenAI" </> "Client" </> "API.hs") (emitApi plan)
       write (tests </> "Instances.hs") (emitInstances plan)
       putStrLn ("generated from revision " <> T.unpack (planRevision plan))
-    _ -> die "usage: genai-codegen --spec FILE --lib DIR --tests DIR"
+    ["--check", "--spec", spec] -> do
+      plan <- loadPlan spec
+      let expect =
+            [ ("UsageMetadata", ResponseOnly), ("Candidate", ResponseOnly), ("GenerateContentResponse", ResponseOnly)
+            , ("ModalityTokenCount", ResponseOnly), ("PromptFeedback", ResponseOnly), ("CitationMetadata", ResponseOnly)
+            , ("Content", Bidirectional), ("Part", Bidirectional), ("Blob", Bidirectional), ("FileData", Bidirectional)
+            , ("GenerationConfig", Bidirectional), ("Schema", Bidirectional), ("File", Bidirectional), ("CachedContent", Bidirectional)
+            ]
+          bad = [(n, want, Map.lookup n (planDirections plan)) | (n, want) <- expect, Map.lookup n (planDirections plan) /= Just want]
+      if null bad
+        then putStrLn ("check ok: " <> show (length (planTypes plan)) <> " types, " <> show (length (planEndpoints plan)) <> " endpoints")
+        else do
+          mapM_ reportMismatch bad
+          die "direction check failed"
+    _ -> die "usage: genai-codegen --spec FILE --lib DIR --tests DIR | genai-codegen --check --spec FILE"
+
+-- | One line per mismatch: the schema, what the check expected, what
+-- 'analyse' actually found (or that the schema is not emitted at all).
+reportMismatch :: (Text, Direction, Maybe Direction) -> IO ()
+reportMismatch (name, want, found) =
+  putStrLn
+    ( T.unpack name <> ": expected " <> show want <> ", found "
+        <> maybe "not emitted" show found
+    )
 
 loadPlan :: FilePath -> IO Plan
 loadPlan spec = do
