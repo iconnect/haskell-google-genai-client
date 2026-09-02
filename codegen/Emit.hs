@@ -412,5 +412,4 @@ genOf :: Field -> Text
 genOf f = case fType f of
   "Value" -> "flatValue"
   "Maybe Value" -> "liftArbitrary flatValue"
-  "[Value]" -> "listOf flatValue"
   _ -> "arbitrary"

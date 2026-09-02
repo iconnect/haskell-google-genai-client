@@ -355,3 +355,34 @@ main = hspec $ do
       let bareEp = ep {epPathParamDocs = [PathParamDoc "name" "" Nothing]}
           bareOut = T.unpack (emitApi (Plan "R" [] [bareEp] mempty))
       bareOut `shouldNotContain` "-- * @name@"
+
+  describe "Emit.emitInstances (fix round 1)" $ do
+    let node =
+          Field
+            { fJson = "next"
+            , fName = "nodeNext"
+            , fType = "Maybe Node"
+            , fBase = "Node"
+            , fWire = WPlain
+            , fPresence = Optional
+            , fPositional = False
+            , fDoc = ""
+            }
+        colorEnum = EnumDef "Color" "A color." [("ColorRed", "RED", "Red."), ("ColorBlue", "BLUE", "Blue.")]
+        plan = Plan "R" [TypeDef "Node" "A self-referential node." [node] [colorEnum]] [] mempty
+        out = T.unpack (emitInstances plan)
+        propLines = filter ("  prop \"" `T.isPrefixOf`) (T.lines (emitInstances plan))
+
+    it "a multi-field type's instance carries the sized/mk<Name> depth guard" $ do
+      out `shouldContain` "instance Arbitrary Node where"
+      out `shouldContain` "arbitrary = sized $ \\d ->"
+      out `shouldContain` "then pure mkNode"
+      out `shouldContain` "else scale (`div` 2) (Node <$> arbitrary)"
+
+    it "an enum generator lists only the known constructors, never Unknown" $ do
+      out `shouldContain` "instance Arbitrary Color where"
+      out `shouldContain` "arbitrary = elements [ColorRed, ColorBlue]"
+      out `shouldNotContain` "ColorUnknown"
+
+    it "emits exactly one prop line per type/enum" $
+      propLines `shouldBe` ["  prop \"Node\" (roundTrip @Node)", "  prop \"Color\" (roundTrip @Color)"]
