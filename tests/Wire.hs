@@ -41,7 +41,20 @@ spec = describe "wire helpers" $ do
     backendBaseUrl (vertexAi "p" "global")
       `shouldBe` "https://aiplatform.googleapis.com/v1"
   it "uploadBase inserts the upload/ segment before the version" $ do
-    uploadBase "https://generativelanguage.googleapis.com/v1beta"
-      `shouldBe` "https://generativelanguage.googleapis.com/upload/v1beta"
-    uploadBase "https://example.test/proxy/v1beta"
-      `shouldBe` "https://example.test/proxy/upload/v1beta"
+    -- GenAIError has no Eq (it embeds http-client's HttpException, which
+    -- has none), so success cases are unwrapped rather than compared with
+    -- shouldBe on the whole Either.
+    case uploadBase "https://generativelanguage.googleapis.com/v1beta" of
+      Right u -> u `shouldBe` "https://generativelanguage.googleapis.com/upload/v1beta"
+      Left e -> expectationFailure ("unexpected error: " <> show e)
+    case uploadBase "https://example.test/proxy/v1beta" of
+      Right u -> u `shouldBe` "https://example.test/proxy/upload/v1beta"
+      Left e -> expectationFailure ("unexpected error: " <> show e)
+  it "uploadBase tolerates a trailing slash on the base" $
+    case uploadBase "https://generativelanguage.googleapis.com/v1beta/" of
+      Right u -> u `shouldBe` "https://generativelanguage.googleapis.com/upload/v1beta"
+      Left e -> expectationFailure ("unexpected error: " <> show e)
+  it "uploadBase rejects a host with no path segment instead of guessing" $
+    case uploadBase "https://example.test" of
+      Left (MalformedBackendUrl u) -> u `shouldBe` "https://example.test"
+      other -> expectationFailure ("expected MalformedBackendUrl, got " <> show other)

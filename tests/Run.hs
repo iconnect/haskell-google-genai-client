@@ -3,10 +3,11 @@
 module Run (spec) where
 
 import Data.List (isInfixOf)
+import qualified Data.Text as T
 import qualified Network.HTTP.Client as HTTP
 import Test.Hspec
 
-import GenAI.Client.Run (authHeaders, googleStatusOf, redactedRequest)
+import GenAI.Client.Run (authHeaders, googleStatusOf, redactedRequest, redactedUri)
 import GenAI.Client.Types
 
 spec :: Spec
@@ -24,6 +25,13 @@ spec = do
       req0 <- HTTP.parseRequest "https://example.com"
       let req = req0 {HTTP.requestHeaders = [("x-goog-api-key", "supersecret")]}
       show (redactedRequest req) `shouldNotSatisfy` ("supersecret" `isInfixOf`)
+
+  describe "redactedUri" $
+    it "drops the query string so a URL-borne secret never reaches the log" $ do
+      req <- HTTP.parseRequest "https://example.com/upload/v1beta/files/abc?upload_id=supersecret"
+      let logged = redactedUri req
+      logged `shouldNotSatisfy` (T.isInfixOf "supersecret")
+      logged `shouldBe` "https://example.com/upload/v1beta/files/abc"
 
   describe "googleStatusOf" $ do
     it "parses the error object out of a Google error body" $

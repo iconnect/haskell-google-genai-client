@@ -10,6 +10,7 @@ module GenAI.Client.Run
   , performHttp
   , googleStatusOf
   , redactedRequest
+  , redactedUri
   ) where
 
 import Control.Exception (try)
@@ -72,9 +73,22 @@ googleStatusOf body = case decode body of
 redactedRequest :: HTTP.Request -> HTTP.Request
 redactedRequest r = r {HTTP.redactHeaders = Set.fromList ["Authorization", "x-goog-api-key"]}
 
+-- | A request's URI with the query string (and fragment) dropped, for
+-- logging: scheme, host and path only. Header redaction alone isn't enough
+-- -- a URL can carry a secret in its query string that never touches a
+-- header, as the Files upload's @x-goog-upload-url@ does (an upload-session
+-- token). This strips the query for every request, not just the upload one,
+-- so any future URL-borne secret is covered too; the query parameters we do
+-- send ourselves (@pageSize@, @updateMask@, ...) are worth losing from the
+-- logs for that guarantee -- they are still on the request itself and in
+-- any returned error.
+redactedUri :: HTTP.Request -> Text
+redactedUri = T.takeWhile (\c -> c /= '?' && c /= '#') . T.pack . show . HTTP.getUri
+
 -- | Runs one prepared HTTP request: catches 'HTTP.HttpException', logs
 -- method/URL/status/duration at Debug, errors at Error, maps non-2xx to 'ApiError'.
--- Bodies are never logged.
+-- Bodies are never logged. The logged URL omits its query string; see
+-- 'redactedUri'.
 performHttp :: Env -> HTTP.Request -> IO (Either GenAIError (HTTP.Response LBS.ByteString))
 performHttp env hreq0 = do
   let hreq = redactedRequest hreq0
@@ -82,7 +96,7 @@ performHttp env hreq0 = do
   res <- try (HTTP.httpLbs hreq (envManager env))
   t1 <- getMonotonicTime
   let ms = T.pack (show (round ((t1 - t0) * 1000) :: Int)) <> "ms"
-      desc = decodeUtf8 (HTTP.method hreq) <> " " <> T.pack (show (HTTP.getUri hreq))
+      desc = decodeUtf8 (HTTP.method hreq) <> " " <> redactedUri hreq
   case res of
     Left e -> do
       logAt ErrorS (desc <> " failed: " <> T.pack (show e))

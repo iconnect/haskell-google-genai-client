@@ -125,6 +125,9 @@ data GenAIError
     UnsupportedOnBackend !Text
   | -- | e.g. streaming.
     UnsupportedOperation !Text
+  | -- | A 'Backend' base URL has no path segment to insert @upload\/@
+    -- before (e.g. it is just a bare host). Carries the offending URL.
+    MalformedBackendUrl !Text
   deriving (Show)
 
 instance Exception GenAIError

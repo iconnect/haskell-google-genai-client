@@ -2,6 +2,7 @@
 
 module Main (main) where
 
+import Control.Monad (unless)
 import qualified Data.ByteString.Lazy as LBS
 import qualified Data.Map.Strict as Map
 import Data.Text (Text)
@@ -59,11 +60,18 @@ main = do
             , ("Content", Bidirectional), ("Part", Bidirectional), ("Blob", Bidirectional), ("FileData", Bidirectional)
             , ("GenerationConfig", Bidirectional), ("Schema", Bidirectional), ("File", Bidirectional), ("CachedContent", Bidirectional)
             ]
+          expectedEndpoints = 15 :: Int
           bad = [(n, want, Map.lookup n (planDirections plan)) | (n, want) <- expect, Map.lookup n (planDirections plan) /= Just want]
-      if null bad
+          endpointCountOk = length (planEndpoints plan) == expectedEndpoints
+      if null bad && endpointCountOk
         then putStrLn ("check ok: " <> show (length (planTypes plan)) <> " types, " <> show (length (planEndpoints plan)) <> " endpoints")
         else do
           mapM_ reportMismatch bad
+          unless endpointCountOk $
+            putStrLn
+              ( "endpoint count mismatch: expected " <> show expectedEndpoints
+                  <> ", found " <> show (length (planEndpoints plan))
+              )
           die "direction check failed"
     _ -> die "usage: genai-codegen --spec FILE --lib DIR --tests DIR | genai-codegen --check --spec FILE"
 
