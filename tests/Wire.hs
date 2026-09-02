@@ -14,12 +14,16 @@ spec = describe "wire helpers" $ do
     decode "123" `shouldBe` Just (I64 123)
     decode "\"12x\"" `shouldBe` (Nothing :: Maybe I64)
     decode "1.5" `shouldBe` (Nothing :: Maybe I64)
+  it "I64 rejects a decimal string that overflows Int64 instead of wrapping" $
+    decode "\"99999999999999999999\"" `shouldBe` (Nothing :: Maybe I64)
   it "I64 encodes as a string (proto3 JSON)" $
     encode (I64 5) `shouldBe` "\"5\""
   it "Base64Bytes round-trips" $
     decode (encode (Base64Bytes "hello")) `shouldBe` Just (Base64Bytes "hello")
   it "Base64Bytes accepts the URL-safe alphabet" $
     decode "\"-_8=\"" `shouldBe` (decode "\"+/8=\"" :: Maybe Base64Bytes)
+  it "Base64Bytes rejects invalid base64 instead of fabricating bytes" $
+    decode "\"!!!not base64!!!\"" `shouldBe` (Nothing :: Maybe Base64Bytes)
   it "GoogleStatus tolerates missing fields" $
     decode "{\"code\":429}" `shouldBe` Just (GoogleStatus 429 "" "" [])
   it "query helpers render and drop Nothing" $ do

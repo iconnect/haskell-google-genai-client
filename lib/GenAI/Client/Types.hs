@@ -28,6 +28,7 @@ module GenAI.Client.Types
 
 import Control.Exception (Exception)
 import Data.Aeson
+import Data.Aeson.Types (Parser)
 import Data.ByteString (ByteString)
 import qualified Data.ByteString.Base64 as B64
 import qualified Data.ByteString.Base64.URL as B64U
@@ -155,7 +156,11 @@ instance ToJSON Base64Bytes where
 instance FromJSON Base64Bytes where
   parseJSON = withText "Base64Bytes" $ \t ->
     let bs = encodeUtf8 t
-     in pure . Base64Bytes $ either (const (B64U.decodeLenient bs)) id (B64.decode bs)
+     in case B64.decode bs of
+          Right decoded -> pure (Base64Bytes decoded)
+          Left err -> case B64U.decode bs of
+            Right decoded -> pure (Base64Bytes decoded)
+            Left _ -> fail ("Base64Bytes: invalid base64: " <> err)
 
 -- | proto3 @int64@: a decimal string on the wire, but numbers are accepted too.
 newtype I64 = I64 {unI64 :: Int64}
@@ -166,8 +171,16 @@ instance ToJSON I64 where
 
 instance FromJSON I64 where
   parseJSON (String t) = case TR.signed TR.decimal t of
-    Right (n, rest) | T.null rest -> pure (I64 n)
+    Right (n, rest) | T.null rest -> boundedI64 n
     _ -> fail ("I64: not an integer string: " <> T.unpack t)
   parseJSON (Number n) =
     maybe (fail "I64: not an integer") (pure . I64) (Sci.toBoundedInteger n)
   parseJSON _ = fail "I64: expected string or number"
+
+-- | Bounds-check an arbitrary-precision integer into 'Int64', rejecting
+-- overflow instead of silently wrapping (as 'fromInteger' would).
+boundedI64 :: Integer -> Parser I64
+boundedI64 n
+  | n < toInteger (minBound :: Int64) || n > toInteger (maxBound :: Int64) =
+      fail ("I64: integer out of Int64 range: " <> show n)
+  | otherwise = pure (I64 (fromInteger n))
