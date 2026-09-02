@@ -118,6 +118,12 @@ main = hspec $ do
       enumTypeName "Candidate" "finishReason" `shouldBe` "CandidateFinishReason"
       enumCtor "CandidateFinishReason" "FINISH_REASON_UNSPECIFIED" `shouldBe` "CandidateFinishReasonFinishReasonUnspecified"
       enumCtor "Foo" "1D" `shouldBe` "FooX1d"
+    it "camel preserves a leading underscore but still splits internal separators" $ do
+      camel "_responseJsonSchema" `shouldBe` "_responseJsonSchema"
+      camel "display_name" `shouldBe` "displayName"
+      camel "a_b-c" `shouldBe` "aBC"
+      hsFieldName "GenerationConfig" "_responseJsonSchema"
+        `shouldNotBe` hsFieldName "GenerationConfig" "responseJsonSchema"
 
   describe "Analyse.fieldOf enum zero-value detection is case-insensitive" $ do
     let enumProp vs d = Property (Just "string") Nothing Nothing Nothing vs [] Nothing d False
@@ -135,3 +141,18 @@ main = hspec $ do
       map fJson (tFields td) `shouldBe` ["big", "count", "createTime", "meta", "shared", "state", "usage"]
       map enumName (tEnums td) `shouldBe` ["PongState"]
       tDoc td `shouldBe` "A pong response."
+
+  describe "Analyse.typeDefOf field-name collisions" $
+    it "two JSON keys that camelise to the same field name make the schema fail closed" $ do
+      let mkProp d = Property (Just "string") Nothing Nothing Nothing [] [] Nothing d False
+          dup =
+            Schema
+              "Dup"
+              "Has a collision."
+              (Map.fromList [("displayName", mkProp "One."), ("display_name", mkProp "Two.")])
+      case typeDefOf Map.empty dup of
+        Left err -> do
+          err `shouldContain` "Dup"
+          err `shouldContain` "displayName"
+          err `shouldContain` "display_name"
+        Right _ -> expectationFailure "expected a Left for colliding field names"

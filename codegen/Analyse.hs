@@ -159,9 +159,12 @@ lowerFirst t = maybe t (\(c, r) -> T.cons (toLower c) r) (T.uncons t)
 
 -- | @display_name@ → @displayName@.
 camel :: Text -> Text
-camel t = case filter (not . T.null) (T.split (\c -> c == '_' || c == '-') t) of
-  [] -> t
-  (x : xs) -> x <> T.concat (map upperFirst xs)
+camel t = leading <> camelRest rest
+  where
+    (leading, rest) = T.span (\c -> c == '_' || c == '-') t
+    camelRest t' = case filter (not . T.null) (T.split (\c -> c == '_' || c == '-') t') of
+      [] -> t'
+      (x : xs) -> x <> T.concat (map upperFirst xs)
 
 hsFieldName :: Text -> Text -> Text
 hsFieldName sid p = lowerFirst sid <> upperFirst (camel p)
@@ -259,14 +262,28 @@ fieldOf dir sid pname p = do
     , enums
     )
 
+-- | Emitted field names are namespaced by the schema id (see 'hsFieldName'),
+-- so a name can only collide with a sibling field of the *same* schema --
+-- cross-schema collisions can't happen here and are left to Task 6, which
+-- sees the whole plan.
 typeDefOf :: Map Text Direction -> Schema -> Either String TypeDef
 typeDefOf dirs s = do
   let dir = fromMaybe Bidirectional (Map.lookup (schemaId s) dirs)
   fs <- traverse (\(n, p) -> fieldOf dir (schemaId s) n p) (Map.toAscList (schemaProperties s))
-  pure
-    TypeDef
-      { tName = schemaId s
-      , tDoc = schemaDescription s
-      , tFields = map fst fs
-      , tEnums = concatMap snd fs
-      }
+  let flds = map fst fs
+      byName = Map.fromListWith (++) [(fName f, [fJson f]) | f <- flds]
+      dups = [(n, js) | (n, js) <- Map.toAscList byName, length js > 1]
+  case dups of
+    (n, js) : _ ->
+      Left
+        ( T.unpack (schemaId s) <> ": field name " <> T.unpack n
+            <> " collides across JSON keys " <> T.unpack (T.intercalate ", " js)
+        )
+    [] ->
+      pure
+        TypeDef
+          { tName = schemaId s
+          , tDoc = schemaDescription s
+          , tFields = flds
+          , tEnums = concatMap snd fs
+          }
