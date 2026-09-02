@@ -8,7 +8,7 @@ import qualified Data.Set as Set
 import Test.Hspec
 
 import Analyse
-import Discovery
+import Discovery hiding (Param)
 
 main :: IO ()
 main = hspec $ do
@@ -156,3 +156,47 @@ main = hspec $ do
           err `shouldContain` "displayName"
           err `shouldContain` "display_name"
         Right _ -> expectationFailure "expected a Left for colliding field names"
+
+  describe "Analyse.endpointOf" $ do
+    let ep ident = either fail pure (endpointOf (docMethods doc Map.! ident))
+    it "model-scoped method" $ do
+      e <- ep "generativelanguage.models.ping"
+      epName e `shouldBe` "ping"
+      epHttp e `shouldBe` "POST"
+      epResource e `shouldBe` TplModel ":ping"
+      epPathParams e `shouldBe` ["model"]
+      epQuery e `shouldBe` []
+      epBody e `shouldBe` Just "Ping"
+      epResponse e `shouldBe` Just "Pong"
+      epAlt e `shouldBe` Nothing
+    it "list with a query record" $ do
+      e <- ep "generativelanguage.models.list"
+      epName e `shouldBe` "listModels"
+      epResource e `shouldBe` TplRaw [Lit "models"]
+      epQuery e `shouldBe` [QueryParam "pageSize" "listModelsPageSize" "Int"]
+      epBody e `shouldBe` Nothing
+    it "delete returning Empty" $ do
+      e <- ep "generativelanguage.files.delete"
+      epName e `shouldBe` "deleteFile"
+      epHttp e `shouldBe` "DELETE"
+      epResource e `shouldBe` TplRaw [Param "name"]
+      epPathParams e `shouldBe` ["name"]
+      epResponse e `shouldBe` Nothing
+
+  describe "Analyse.analyse" $ do
+    it "builds the plan from an allowlist" $ do
+      plan <- either fail pure (analyse ["generativelanguage.models.ping"] ["generativelanguage.files.delete"] doc)
+      planRevision plan `shouldBe` "20260101"
+      map tName (planTypes plan) `shouldBe` ["Empty", "Ping", "Pong", "Shared", "Usage"]
+      map epName (planEndpoints plan) `shouldBe` ["ping"]
+    it "rejects unknown method ids" $
+      either (const True) (const False) (analyse ["generativelanguage.models.nope"] [] doc) `shouldBe` True
+    it "rejects type-name collisions" $ do
+      -- A schema named "PongState" collides with the enum type generated for Pong.state.
+      let refProp = Property Nothing Nothing (Just "PongState") Nothing [] [] Nothing "" False
+          addRef s = s {schemaProperties = Map.insert "ps" refProp (schemaProperties s)}
+          schemas' =
+            Map.adjust addRef "Pong" $
+              Map.insert "PongState" (Schema "PongState" "" Map.empty) (docSchemas doc)
+      either (const True) (const False) (analyse ["generativelanguage.models.ping"] [] doc {docSchemas = schemas'})
+        `shouldBe` True
