@@ -77,3 +77,51 @@ main = hspec $ do
         `shouldBe` Set.fromList ["Pong", "Shared", "Usage"]
       closure schemas (not . isOutputOnly) (Set.fromList ["Pong"])
         `shouldBe` Set.fromList ["Pong", "Shared"]
+
+  describe "Analyse.fieldOf" $ do
+    let field sid dir pname = do
+          let s = docSchemas doc Map.! sid
+              p = schemaProperties s Map.! pname
+          either fail (pure . fst) (fieldOf dir sid pname p)
+        shape f = (fType f, fWire f, fPresence f, fPositional f)
+    it "Required. string → positional Text" $
+      shape <$> field "Ping" Bidirectional "model" `shouldReturn` ("Text", WPlain, Required, True)
+    it "optional string in a bidirectional schema stays Maybe" $
+      shape <$> field "Ping" Bidirectional "text" `shouldReturn` ("Maybe Text", WPlain, Optional, False)
+    it "float in a bidirectional schema stays Maybe (explicit presence)" $
+      shape <$> field "Ping" Bidirectional "temperature" `shouldReturn` ("Maybe Double", WPlain, Optional, False)
+    it "arrays are never Maybe" $
+      shape <$> field "Ping" Bidirectional "tags" `shouldReturn` ("[Text]", WPlain, Mono, False)
+    it "message refs are Maybe" $
+      shape <$> field "Pong" ResponseOnly "usage" `shouldReturn` ("Maybe Usage", WPlain, Optional, False)
+    it "int32 in a response-only schema defaults to 0" $
+      shape <$> field "Pong" ResponseOnly "count" `shouldReturn` ("Int", WPlain, Defaulted "0", False)
+    it "int64 uses the I64 wire newtype" $
+      shape <$> field "Pong" ResponseOnly "big" `shouldReturn` ("Int64", WInt64, Defaulted "0", False)
+    it "enum in a response-only schema defaults to its UNSPECIFIED constructor" $
+      shape <$> field "Pong" ResponseOnly "state"
+        `shouldReturn` ("PongState", WPlain, Defaulted "PongStateStateUnspecified", False)
+    it "enum in a bidirectional schema is Maybe" $
+      shape <$> field "Pong" Bidirectional "state" `shouldReturn` ("Maybe PongState", WPlain, Optional, False)
+    it "timestamps are Maybe even when response-only" $
+      shape <$> field "Pong" ResponseOnly "createTime" `shouldReturn` ("Maybe UTCTime", WPlain, Optional, False)
+    it "structs are Object" $
+      shape <$> field "Pong" ResponseOnly "meta" `shouldReturn` ("Object", WPlain, Mono, False)
+    it "produces the enum definition" $ do
+      let p = schemaProperties (docSchemas doc Map.! "Pong") Map.! "state"
+      fmap snd (fieldOf ResponseOnly "Pong" "state" p)
+        `shouldBe` Right [EnumDef "PongState" "Optional. Output only. State."
+                            [("PongStateStateUnspecified", "STATE_UNSPECIFIED", "Default."), ("PongStateActive", "ACTIVE", "Live.")]]
+    it "names" $ do
+      hsFieldName "Pong" "createTime" `shouldBe` "pongCreateTime"
+      hsFieldName "File" "display_name" `shouldBe` "fileDisplayName"
+      enumTypeName "Candidate" "finishReason" `shouldBe` "CandidateFinishReason"
+      enumCtor "CandidateFinishReason" "FINISH_REASON_UNSPECIFIED" `shouldBe` "CandidateFinishReasonFinishReasonUnspecified"
+      enumCtor "Foo" "1D" `shouldBe` "FooX1d"
+
+  describe "Analyse.typeDefOf" $
+    it "orders fields alphabetically and collects enums" $ do
+      td <- either fail pure (typeDefOf dirs (docSchemas doc Map.! "Pong"))
+      map fJson (tFields td) `shouldBe` ["big", "count", "createTime", "meta", "shared", "state", "usage"]
+      map enumName (tEnums td) `shouldBe` ["PongState"]
+      tDoc td `shouldBe` "A pong response."
