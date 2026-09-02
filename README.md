@@ -187,3 +187,11 @@ tuned models, semantic retrieval, batches.
 `cabal test test:tests` runs wire, URL, JSON round-trip and fixture tests.
 Set `GEMINI_API_KEY` to also run one live `generateContent` call; without it
 that test reports pending, not failing.
+
+```sh
+GEMINI_API_KEY=... cabal test test:tests --test-show-details=direct
+```
+
+The live call uses `gemini-3.6-flash`. Google retires model names on its own
+schedule and answers a retired one with a 404 naming its replacement, so set
+`GEMINI_TEST_MODEL` to override the default rather than editing the test.
