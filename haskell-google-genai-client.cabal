@@ -112,6 +112,7 @@ test-suite tests
   main-is:          Test.hs
   default-language: GHC2021
   other-modules:
+    Fixtures
     Instances
     Run
     Url
