@@ -243,13 +243,22 @@ fieldOf dir sid pname p = do
         Right ("[" <> et <> "]", w, KMono, es)
     _ -> elemOf sid pname p
   let req = isRequired p
+      -- Lenient decode, strict encode. @Required.@ in Discovery says what a
+      -- CALLER must send; it is not a promise about what Google returns
+      -- (@Model.baseModelId@ is marked @Required.@ yet real @models.list@
+      -- payloads omit it). So a required field is still non-'Maybe' and still
+      -- positional in @mk*@ -- the encoder always emits it -- but the decoder
+      -- only insists when the kind has no sane default.
       (fty, pres) = case kind of
         KMono -> (ty, Mono)
-        _ | req -> (ty, Required)
-        KMessage -> ("Maybe " <> ty, Optional)
-        KNoDefault -> ("Maybe " <> ty, Optional)
         KScalar d
-          | dir == ResponseOnly -> (ty, Defaulted d)
+          | req || dir == ResponseOnly -> (ty, Defaulted d)
+          | otherwise -> ("Maybe " <> ty, Optional)
+        KMessage
+          | req -> (ty, Required)
+          | otherwise -> ("Maybe " <> ty, Optional)
+        KNoDefault
+          | req -> (ty, Required)
           | otherwise -> ("Maybe " <> ty, Optional)
       (fty', pres') = case Map.lookup (sid, pname) overrides of
         Nothing -> (fty, pres)

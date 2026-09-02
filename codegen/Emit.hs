@@ -27,6 +27,19 @@ haddock = T.concatMap esc . T.unwords . T.words
       | c `elem` ("\\/'\"@<>[]*#~`" :: String) = T.pack ['\\', c]
       | otherwise = T.singleton c
 
+-- | A @-- |@ Haddock block, or no line at all when the description is empty.
+docComment :: Text -> [Text]
+docComment d
+  | T.null (T.strip d) = []
+  | otherwise = ["-- | " <> haddock d]
+
+-- | A trailing @-- ^@ Haddock comment at the given indent, or nothing when the
+-- description is empty.
+docAfter :: Text -> Text -> Text
+docAfter indent d
+  | T.null (T.strip d) = ""
+  | otherwise = indent <> "-- ^ " <> haddock d
+
 -- | A Haskell string literal.
 quote :: Text -> Text
 quote = T.pack . show . T.unpack
@@ -70,10 +83,9 @@ emitType t = concatMap emitEnum (tEnums t) ++ emitData t
 
 emitEnum :: EnumDef -> [Text]
 emitEnum e =
-  [ "-- | " <> haddock (enumDoc e)
-  , "data " <> n
-  ]
-    ++ numbered "  = " "  | " [c <> " -- ^ " <> haddock d | (c, _, d) <- enumCtors e]
+  docComment (enumDoc e)
+    ++ ["data " <> n]
+    ++ numbered "  = " "  | " [c <> docAfter " " d | (c, _, d) <- enumCtors e]
     ++ [ "  | " <> n <> "Unknown Text -- ^ A value this module does not know about."
        , "  deriving (Show, Eq, Generic)"
        , ""
@@ -94,26 +106,25 @@ emitEnum e =
 emitData :: TypeDef -> [Text]
 emitData t
   | null fs =
-      [ "-- | " <> haddock (tDoc t)
-      , "data " <> n <> " = " <> n
-      , "  deriving (Show, Eq, Generic)"
-      , ""
-      , "-- | This message has no fields."
-      , "mk" <> n <> " :: " <> n
-      , "mk" <> n <> " = " <> n
-      , ""
-      , "instance FromJSON " <> n <> " where"
-      , "  parseJSON = withObject " <> quote n <> " (\\_ -> pure " <> n <> ")"
-      , ""
-      , "instance ToJSON " <> n <> " where"
-      , "  toJSON _ = object []"
-      , ""
-      ]
+      docComment (tDoc t)
+        ++ [ "data " <> n <> " = " <> n
+           , "  deriving (Show, Eq, Generic)"
+           , ""
+           , "-- | This message has no fields."
+           , "mk" <> n <> " :: " <> n
+           , "mk" <> n <> " = " <> n
+           , ""
+           , "instance FromJSON " <> n <> " where"
+           , "  parseJSON = withObject " <> quote n <> " (\\_ -> pure " <> n <> ")"
+           , ""
+           , "instance ToJSON " <> n <> " where"
+           , "  toJSON _ = object []"
+           , ""
+           ]
   | otherwise =
-      [ "-- | " <> haddock (tDoc t)
-      , "data " <> n <> " = " <> n
-      ]
-        ++ numbered "  { " "  , " [fName f <> " :: !(" <> fType f <> ")\n    -- ^ " <> haddock (fDoc f) | f <- fs]
+      docComment (tDoc t)
+        ++ ["data " <> n <> " = " <> n]
+        ++ numbered "  { " "  , " [fName f <> " :: !(" <> fType f <> ")" <> docAfter "\n    " (fDoc f) | f <- fs]
         ++ [ "  }"
            , "  deriving (Show, Eq, Generic)"
            , ""
@@ -173,8 +184,15 @@ encoder f = case (fPresence f, fWire f) of
   (Defaulted _, WInt64) -> "Just (" <> k <> " .= I64 " <> v <> ")"
   (Optional, WPlain) -> "(" <> k <> " .=) <$> " <> v
   (Optional, WInt64) -> "(" <> k <> " .=) . I64 <$> " <> v
-  (Mono, WPlain) -> "if null " <> v <> " then Nothing else Just (" <> k <> " .= " <> v <> ")"
-  (Mono, WInt64) -> "if null " <> v <> " then Nothing else Just (" <> k <> " .= map I64 " <> v <> ")"
+  -- A @Required.@ collection is emitted even when empty: an empty required map
+  -- (@FunctionResponse.response@ for a void tool result) and an empty required
+  -- list are legitimate payloads, and omitting the key would be invalid.
+  (Mono, WPlain)
+    | fPositional f -> "Just (" <> k <> " .= " <> v <> ")"
+    | otherwise -> "if null " <> v <> " then Nothing else Just (" <> k <> " .= " <> v <> ")"
+  (Mono, WInt64)
+    | fPositional f -> "Just (" <> k <> " .= map I64 " <> v <> ")"
+    | otherwise -> "if null " <> v <> " then Nothing else Just (" <> k <> " .= map I64 " <> v <> ")"
   where
     k = quote (fJson f)
     v = fName f

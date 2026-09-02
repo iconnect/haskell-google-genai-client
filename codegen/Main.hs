@@ -7,8 +7,9 @@ import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Text.Encoding (encodeUtf8)
 import System.Environment (getArgs)
+import System.Directory (createDirectoryIfMissing)
 import System.Exit (die)
-import System.FilePath ((</>))
+import System.FilePath (takeDirectory, (</>))
 
 import Analyse
 import Discovery
@@ -55,6 +56,9 @@ loadPlan spec = do
   doc <- either (die . ("spec parse: " <>)) pure (parseDoc bytes)
   either (die . ("analyse: " <>)) pure (analyse allowlist typesOnly doc)
 
--- | UTF-8 regardless of locale (descriptions contain non-ASCII).
+-- | UTF-8 regardless of locale (descriptions contain non-ASCII). Creates the
+-- parent directory, so a fresh checkout or a new @--lib@ target just works.
 write :: FilePath -> Text -> IO ()
-write path = LBS.writeFile path . LBS.fromStrict . encodeUtf8
+write path t = do
+  createDirectoryIfMissing True (takeDirectory path)
+  LBS.writeFile path (LBS.fromStrict (encodeUtf8 t))

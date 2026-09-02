@@ -7,8 +7,12 @@ import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 import Test.Hspec
 
+import Data.Text (Text)
+import qualified Data.Text as T
+
 import Analyse
 import Discovery hiding (Param)
+import Emit
 
 main :: IO ()
 main = hspec $ do
@@ -84,8 +88,12 @@ main = hspec $ do
               p = schemaProperties s Map.! pname
           either fail (pure . fst) (fieldOf dir sid pname p)
         shape f = (fType f, fWire f, fPresence f, fPositional f)
-    it "Required. string → positional Text" $
-      shape <$> field "Ping" Bidirectional "model" `shouldReturn` ("Text", WPlain, Required, True)
+    -- Deliberate semantic change (fix round 1): "lenient decode, strict
+    -- encode". A Required. scalar keeps its non-Maybe type and stays
+    -- positional in mk*, but decodes with a default instead of failing, since
+    -- Discovery's Required. constrains callers, not Google's responses.
+    it "Required. string → positional Text, defaulted (lenient decode)" $
+      shape <$> field "Ping" Bidirectional "model" `shouldReturn` ("Text", WPlain, Defaulted "\"\"", True)
     it "optional string in a bidirectional schema stays Maybe" $
       shape <$> field "Ping" Bidirectional "text" `shouldReturn` ("Maybe Text", WPlain, Optional, False)
     it "float in a bidirectional schema stays Maybe (explicit presence)" $
@@ -134,6 +142,37 @@ main = hspec $ do
     it "no zero value at all keeps the conservative Maybe fallback" $
       shape (fieldOf ResponseOnly "X" "level" (enumProp ["ALPHA", "BETA"] "Level."))
         `shouldBe` Right ("Maybe XLevel", Optional)
+
+  describe "Analyse.fieldOf: Required. is lenient on decode, strict on encode" $ do
+    let req ty extra = extra (Property (Just ty) Nothing Nothing Nothing [] [] Nothing "Required. A thing." False)
+        plain p = p
+        shape = fmap (\(f, _) -> (fType f, fPresence f, fPositional f))
+    it "a required scalar defaults on decode and still always encodes" $ do
+      shape (fieldOf Bidirectional "X" "n" (req "integer" plain))
+        `shouldBe` Right ("Int", Defaulted "0", True)
+      shape (fieldOf Bidirectional "X" "b" (req "boolean" plain))
+        `shouldBe` Right ("Bool", Defaulted "False", True)
+    it "a required int64 defaults on decode" $
+      shape (fieldOf Bidirectional "X" "big" (req "string" (\p -> p {propFormat = Just "int64"})))
+        `shouldBe` Right ("Int64", Defaulted "0", True)
+    it "a required enum with a zero value defaults on decode" $
+      shape (fieldOf Bidirectional "X" "type" (req "string" (\p -> p {propEnum = ["TYPE_UNSPECIFIED", "OBJECT"]})))
+        `shouldBe` Right ("XType", Defaulted "XTypeTypeUnspecified", True)
+    it "a required list stays Mono and positional" $
+      shape (fieldOf Bidirectional "X" "items" (req "array" (\p -> p {propItems = Just (Property (Just "string") Nothing Nothing Nothing [] [] Nothing "" False)})))
+        `shouldBe` Right ("[Text]", Mono, True)
+    it "a required map stays Mono and positional" $
+      shape (fieldOf Bidirectional "X" "response" (req "object" plain))
+        `shouldBe` Right ("Object", Mono, True)
+    it "a required nested message still decodes strictly" $
+      shape (fieldOf Bidirectional "X" "content" (Property Nothing Nothing (Just "Content") Nothing [] [] Nothing "Required. The content." False))
+        `shouldBe` Right ("Content", Required, True)
+    it "a required timestamp (no sane default) still decodes strictly" $
+      shape (fieldOf Bidirectional "X" "at" (req "string" (\p -> p {propFormat = Just "google-datetime"})))
+        `shouldBe` Right ("UTCTime", Required, True)
+    it "a required enum with no zero value still decodes strictly" $
+      shape (fieldOf Bidirectional "X" "level" (req "string" (\p -> p {propEnum = ["ALPHA", "BETA"]})))
+        `shouldBe` Right ("XLevel", Required, True)
 
   describe "Analyse.typeDefOf" $
     it "orders fields alphabetically and collects enums" $ do
@@ -200,3 +239,68 @@ main = hspec $ do
               Map.insert "PongState" (Schema "PongState" "" Map.empty) (docSchemas doc)
       either (const True) (const False) (analyse ["generativelanguage.models.ping"] [] doc {docSchemas = schemas'})
         `shouldBe` True
+
+  describe "Emit.emitModel" $ do
+    -- One field per Presence x Wire combination the rules can produce, so the
+    -- emitted decoder/encoder for each is pinned. This is the guard that would
+    -- have caught the <$>/<*> fixity mis-grouping.
+    let fld j ty pres wire posl =
+          Field
+            { fJson = j
+            , fName = "m" <> upperFirst j
+            , fType = ty
+            , fBase = ty
+            , fWire = wire
+            , fPresence = pres
+            , fPositional = posl
+            , fDoc = ""
+            }
+        matrix =
+          [ fld "reqMsg" "Sub" Required WPlain True
+          , fld "optTxt" "Maybe Text" Optional WPlain False
+          , fld "optBig" "Maybe Int64" Optional WInt64 False
+          , fld "defTxt" "Text" (Defaulted "\"\"") WPlain False
+          , fld "defBig" "Int64" (Defaulted "0") WInt64 False
+          , fld "reqTxt" "Text" (Defaulted "\"\"") WPlain True
+          , fld "monoList" "[Text]" Mono WPlain False
+          , fld "monoMap" "Object" Mono WPlain False
+          , fld "reqList" "[Text]" Mono WPlain True
+          , fld "monoBig" "[Int64]" Mono WInt64 False
+          ]
+        out = emitModel (Plan "R" [TypeDef "M" "A thing." matrix []] [] mempty)
+        has x = it (T.unpack x) (T.unpack out `shouldContain` T.unpack x)
+
+    it "puts the revision in the header" $
+      T.unpack out `shouldContain` "(revision R)"
+
+    describe "decoders (every one parenthesised, against the infixl 4 chain)" $ do
+      has "<$> (o .: \"reqMsg\")"
+      has "<*> (o .:? \"optTxt\")"
+      has "<*> (fmap unI64 <$> o .:? \"optBig\")"
+      has "<*> (o .:? \"defTxt\" .!= \"\")"
+      has "<*> (maybe 0 unI64 <$> o .:? \"defBig\")"
+      has "<*> (o .:? \"reqTxt\" .!= \"\")"
+      has "<*> (o .:? \"monoList\" .!= mempty)"
+      has "<*> (o .:? \"monoMap\" .!= mempty)"
+      has "<*> (o .:? \"reqList\" .!= mempty)"
+      has "<*> (map unI64 <$> o .:? \"monoBig\" .!= mempty)"
+
+    describe "encoders" $ do
+      has "Just (\"reqMsg\" .= mReqMsg)"
+      has "(\"optTxt\" .=) <$> mOptTxt"
+      has "(\"optBig\" .=) . I64 <$> mOptBig"
+      has "Just (\"defTxt\" .= mDefTxt)"
+      has "Just (\"defBig\" .= I64 mDefBig)"
+      has "if null mMonoList then Nothing else Just (\"monoList\" .= mMonoList)"
+      has "if null mMonoBig then Nothing else Just (\"monoBig\" .= map I64 mMonoBig)"
+      it "a Required. collection is emitted even when empty" $ do
+        T.unpack out `shouldContain` "Just (\"reqList\" .= mReqList)"
+        T.unpack out `shouldNotContain` "if null mReqList"
+
+    it "makes the Required. fields positional in mk*, in field order" $
+      T.unpack out `shouldContain` "mkM :: Sub -> Text -> [Text] -> M"
+
+    it "omits the Haddock line entirely when a description is empty" $ do
+      let bare = emitModel (Plan "R" [TypeDef "E" "" [] []] [] mempty)
+      T.unpack bare `shouldContain` "data E = E"
+      T.unpack bare `shouldNotContain` "-- | \n"

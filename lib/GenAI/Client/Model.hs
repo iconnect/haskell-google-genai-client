@@ -170,7 +170,7 @@ instance FromJSON AudioTranscription where
   parseJSON = withObject "AudioTranscription" $ \o ->
     AudioTranscription
       <$> (o .:? "speakerLabel")
-      <*> (o .: "text")
+      <*> (o .:? "text" .!= "")
       <*> (o .:? "words" .!= mempty)
 
 instance ToJSON AudioTranscription where
@@ -282,7 +282,7 @@ instance FromJSON BatchEmbedContentsRequest where
 
 instance ToJSON BatchEmbedContentsRequest where
   toJSON BatchEmbedContentsRequest{..} = object $ catMaybes
-    [ if null batchEmbedContentsRequestRequests then Nothing else Just ("requests" .= batchEmbedContentsRequestRequests)
+    [ Just ("requests" .= batchEmbedContentsRequestRequests)
     ]
 
 -- | The response to a \`BatchEmbedContentsRequest\`.
@@ -402,7 +402,7 @@ instance FromJSON CachedContent where
       <*> (o .:? "createTime")
       <*> (o .:? "displayName")
       <*> (o .:? "expireTime")
-      <*> (o .: "model")
+      <*> (o .:? "model" .!= "")
       <*> (o .:? "name")
       <*> (o .:? "systemInstruction")
       <*> (o .:? "toolConfig")
@@ -732,7 +732,7 @@ instance FromJSON CodeExecutionResult where
   parseJSON = withObject "CodeExecutionResult" $ \o ->
     CodeExecutionResult
       <$> (o .:? "id")
-      <*> (o .: "outcome")
+      <*> (o .:? "outcome" .!= CodeExecutionResultOutcomeOutcomeUnspecified)
       <*> (o .:? "output")
 
 instance ToJSON CodeExecutionResult where
@@ -742,7 +742,6 @@ instance ToJSON CodeExecutionResult where
     , ("output" .=) <$> codeExecutionResultOutput
     ]
 
--- | 
 data ComputerUseDisabledSafetyPolicies
   = ComputerUseDisabledSafetyPoliciesSafetyPolicyUnspecified -- ^ Unspecified safety policy.
   | ComputerUseDisabledSafetyPoliciesFinancialTransactions -- ^ Safety policy for financial transactions.
@@ -832,7 +831,7 @@ instance FromJSON ComputerUse where
     ComputerUse
       <$> (o .:? "disabledSafetyPolicies" .!= mempty)
       <*> (o .:? "enablePromptInjectionDetection")
-      <*> (o .: "environment")
+      <*> (o .:? "environment" .!= ComputerUseEnvironmentEnvironmentUnspecified)
       <*> (o .:? "excludedPredefinedFunctions" .!= mempty)
 
 instance ToJSON ComputerUse where
@@ -1228,7 +1227,7 @@ instance FromJSON EmbedContentRequest where
     EmbedContentRequest
       <$> (o .: "content")
       <*> (o .:? "embedContentConfig")
-      <*> (o .: "model")
+      <*> (o .:? "model" .!= "")
       <*> (o .:? "outputDimensionality")
       <*> (o .:? "taskType")
       <*> (o .:? "title")
@@ -1357,9 +1356,9 @@ mkExecutableCode arg_executableCodeCode arg_executableCodeLanguage =
 instance FromJSON ExecutableCode where
   parseJSON = withObject "ExecutableCode" $ \o ->
     ExecutableCode
-      <$> (o .: "code")
+      <$> (o .:? "code" .!= "")
       <*> (o .:? "id")
-      <*> (o .: "language")
+      <*> (o .:? "language" .!= ExecutableCodeLanguageLanguageUnspecified)
 
 instance ToJSON ExecutableCode where
   toJSON ExecutableCode{..} = object $ catMaybes
@@ -1531,7 +1530,7 @@ instance FromJSON FileData where
   parseJSON = withObject "FileData" $ \o ->
     FileData
       <$> (o .:? "displayName")
-      <*> (o .: "fileUri")
+      <*> (o .:? "fileUri" .!= "")
       <*> (o .:? "mimeType")
 
 instance ToJSON FileData where
@@ -1570,7 +1569,7 @@ instance FromJSON FileSearch where
 
 instance ToJSON FileSearch where
   toJSON FileSearch{..} = object $ catMaybes
-    [ if null fileSearchFileSearchStoreNames then Nothing else Just ("fileSearchStoreNames" .= fileSearchFileSearchStoreNames)
+    [ Just ("fileSearchStoreNames" .= fileSearchFileSearchStoreNames)
     , ("metadataFilter" .=) <$> fileSearchMetadataFilter
     , ("topK" .=) <$> fileSearchTopK
     ]
@@ -1600,7 +1599,7 @@ instance FromJSON FunctionCall where
     FunctionCall
       <$> (o .:? "args" .!= mempty)
       <*> (o .:? "id")
-      <*> (o .: "name")
+      <*> (o .:? "name" .!= "")
 
 instance ToJSON FunctionCall where
   toJSON FunctionCall{..} = object $ catMaybes
@@ -1724,8 +1723,8 @@ instance FromJSON FunctionDeclaration where
   parseJSON = withObject "FunctionDeclaration" $ \o ->
     FunctionDeclaration
       <$> (o .:? "behavior")
-      <*> (o .: "description")
-      <*> (o .: "name")
+      <*> (o .:? "description" .!= "")
+      <*> (o .:? "name" .!= "")
       <*> (o .:? "parameters")
       <*> (o .:? "parametersJsonSchema")
       <*> (o .:? "response")
@@ -1800,7 +1799,7 @@ instance FromJSON FunctionResponse where
   parseJSON = withObject "FunctionResponse" $ \o ->
     FunctionResponse
       <$> (o .:? "id")
-      <*> (o .: "name")
+      <*> (o .:? "name" .!= "")
       <*> (o .:? "parts" .!= mempty)
       <*> (o .:? "response" .!= mempty)
       <*> (o .:? "scheduling")
@@ -1811,7 +1810,7 @@ instance ToJSON FunctionResponse where
     [ ("id" .=) <$> functionResponseId
     , Just ("name" .= functionResponseName)
     , if null functionResponseParts then Nothing else Just ("parts" .= functionResponseParts)
-    , if null functionResponseResponse then Nothing else Just ("response" .= functionResponseResponse)
+    , Just ("response" .= functionResponseResponse)
     , ("scheduling" .=) <$> functionResponseScheduling
     , ("willContinue" .=) <$> functionResponseWillContinue
     ]
@@ -1941,7 +1940,7 @@ instance FromJSON GenerateContentRequest where
       <$> (o .:? "cachedContent")
       <*> (o .:? "contents" .!= mempty)
       <*> (o .:? "generationConfig")
-      <*> (o .: "model")
+      <*> (o .:? "model" .!= "")
       <*> (o .:? "safetySettings" .!= mempty)
       <*> (o .:? "serviceTier")
       <*> (o .:? "store")
@@ -1952,7 +1951,7 @@ instance FromJSON GenerateContentRequest where
 instance ToJSON GenerateContentRequest where
   toJSON GenerateContentRequest{..} = object $ catMaybes
     [ ("cachedContent" .=) <$> generateContentRequestCachedContent
-    , if null generateContentRequestContents then Nothing else Just ("contents" .= generateContentRequestContents)
+    , Just ("contents" .= generateContentRequestContents)
     , ("generationConfig" .=) <$> generateContentRequestGenerationConfig
     , Just ("model" .= generateContentRequestModel)
     , if null generateContentRequestSafetySettings then Nothing else Just ("safetySettings" .= generateContentRequestSafetySettings)
@@ -2037,7 +2036,6 @@ instance ToJSON GenerationConfigMediaResolution where
     GenerationConfigMediaResolutionMediaResolutionHigh -> "MEDIA_RESOLUTION_HIGH"
     GenerationConfigMediaResolutionUnknown other -> other
 
--- | 
 data GenerationConfigResponseModalities
   = GenerationConfigResponseModalitiesModalityUnspecified -- ^ Default value.
   | GenerationConfigResponseModalitiesText -- ^ Indicates the model should return text.
@@ -2887,7 +2885,7 @@ instance FromJSON LanguageHints where
 
 instance ToJSON LanguageHints where
   toJSON LanguageHints{..} = object $ catMaybes
-    [ if null languageHintsLanguageCodes then Nothing else Just ("languageCodes" .= languageHintsLanguageCodes)
+    [ Just ("languageCodes" .= languageHintsLanguageCodes)
     ]
 
 -- | An object that represents a latitude\/longitude pair. This is expressed as a pair of doubles to represent degrees latitude and degrees longitude. Unless specified otherwise, this object must conform to the WGS84 standard. Values must be within normalized ranges.
@@ -3260,19 +3258,19 @@ mkModel arg_modelBaseModelId arg_modelName arg_modelVersion =
 instance FromJSON Model where
   parseJSON = withObject "Model" $ \o ->
     Model
-      <$> (o .: "baseModelId")
+      <$> (o .:? "baseModelId" .!= "")
       <*> (o .:? "description" .!= "")
       <*> (o .:? "displayName" .!= "")
       <*> (o .:? "inputTokenLimit" .!= 0)
       <*> (o .:? "maxTemperature" .!= 0)
-      <*> (o .: "name")
+      <*> (o .:? "name" .!= "")
       <*> (o .:? "outputTokenLimit" .!= 0)
       <*> (o .:? "supportedGenerationMethods" .!= mempty)
       <*> (o .:? "temperature" .!= 0)
       <*> (o .:? "thinking" .!= False)
       <*> (o .:? "topK" .!= 0)
       <*> (o .:? "topP" .!= 0)
-      <*> (o .: "version")
+      <*> (o .:? "version" .!= "")
 
 instance ToJSON Model where
   toJSON Model{..} = object $ catMaybes
@@ -3383,7 +3381,7 @@ instance FromJSON MultiSpeakerVoiceConfig where
 
 instance ToJSON MultiSpeakerVoiceConfig where
   toJSON MultiSpeakerVoiceConfig{..} = object $ catMaybes
-    [ if null multiSpeakerVoiceConfigSpeakerVoiceConfigs then Nothing else Just ("speakerVoiceConfigs" .= multiSpeakerVoiceConfigSpeakerVoiceConfigs)
+    [ Just ("speakerVoiceConfigs" .= multiSpeakerVoiceConfigSpeakerVoiceConfigs)
     ]
 
 -- | Optional. How the model processes this part\'s media for understanding. Only meaningful for video parts (\`inline_data\` or \`file_data\` with video mime). Non-video parts ignore this field.
@@ -3894,8 +3892,8 @@ instance FromJSON SafetyRating where
   parseJSON = withObject "SafetyRating" $ \o ->
     SafetyRating
       <$> (o .:? "blocked" .!= False)
-      <*> (o .: "category")
-      <*> (o .: "probability")
+      <*> (o .:? "category" .!= SafetyRatingCategoryHarmCategoryUnspecified)
+      <*> (o .:? "probability" .!= SafetyRatingProbabilityHarmProbabilityUnspecified)
 
 instance ToJSON SafetyRating where
   toJSON SafetyRating{..} = object $ catMaybes
@@ -4007,8 +4005,8 @@ mkSafetySetting arg_safetySettingCategory arg_safetySettingThreshold =
 instance FromJSON SafetySetting where
   parseJSON = withObject "SafetySetting" $ \o ->
     SafetySetting
-      <$> (o .: "category")
-      <*> (o .: "threshold")
+      <$> (o .:? "category" .!= SafetySettingCategoryHarmCategoryUnspecified)
+      <*> (o .:? "threshold" .!= SafetySettingThresholdHarmBlockThresholdUnspecified)
 
 instance ToJSON SafetySetting where
   toJSON SafetySetting{..} = object $ catMaybes
@@ -4154,7 +4152,7 @@ instance FromJSON Schema where
       <*> (o .:? "propertyOrdering" .!= mempty)
       <*> (o .:? "required" .!= mempty)
       <*> (o .:? "title")
-      <*> (o .: "type")
+      <*> (o .:? "type" .!= SchemaTypeTypeUnspecified)
 
 instance ToJSON Schema where
   toJSON Schema{..} = object $ catMaybes
@@ -4289,7 +4287,7 @@ mkSpeakerVoiceConfig arg_speakerVoiceConfigSpeaker arg_speakerVoiceConfigVoiceCo
 instance FromJSON SpeakerVoiceConfig where
   parseJSON = withObject "SpeakerVoiceConfig" $ \o ->
     SpeakerVoiceConfig
-      <$> (o .: "speaker")
+      <$> (o .:? "speaker" .!= "")
       <*> (o .: "voiceConfig")
 
 instance ToJSON SpeakerVoiceConfig where
@@ -4647,7 +4645,7 @@ instance FromJSON ToolCall where
       <$> (o .:? "args" .!= mempty)
       <*> (o .:? "id")
       <*> (o .:? "toolName")
-      <*> (o .: "toolType")
+      <*> (o .:? "toolType" .!= ToolCallToolTypeToolTypeUnspecified)
 
 instance ToJSON ToolCall where
   toJSON ToolCall{..} = object $ catMaybes
@@ -4747,7 +4745,7 @@ instance FromJSON ToolResponse where
     ToolResponse
       <$> (o .:? "id")
       <*> (o .:? "response" .!= mempty)
-      <*> (o .: "toolType")
+      <*> (o .:? "toolType" .!= ToolResponseToolTypeToolTypeUnspecified)
 
 instance ToJSON ToolResponse where
   toJSON ToolResponse{..} = object $ catMaybes
@@ -4801,7 +4799,7 @@ instance FromJSON TranslationConfig where
   parseJSON = withObject "TranslationConfig" $ \o ->
     TranslationConfig
       <$> (o .:? "echoTargetLanguage")
-      <*> (o .: "targetLanguageCode")
+      <*> (o .:? "targetLanguageCode" .!= "")
 
 instance ToJSON TranslationConfig where
   toJSON TranslationConfig{..} = object $ catMaybes
@@ -5205,7 +5203,7 @@ instance FromJSON WordInfo where
     WordInfo
       <$> (o .:? "endOffset")
       <*> (o .:? "startOffset")
-      <*> (o .: "word")
+      <*> (o .:? "word" .!= "")
 
 instance ToJSON WordInfo where
   toJSON WordInfo{..} = object $ catMaybes
