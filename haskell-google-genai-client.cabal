@@ -40,7 +40,9 @@ library
   import:           warnings
   hs-source-dirs:   lib
   default-language: GHC2021
-  exposed-modules:  GenAI.Client.Types
+  exposed-modules:
+    GenAI.Client.Run
+    GenAI.Client.Types
   build-depends:
     , aeson              >=2.1  && <2.3
     , base               >=4.18 && <5
@@ -96,7 +98,9 @@ test-suite tests
   hs-source-dirs:   tests
   main-is:          Test.hs
   default-language: GHC2021
-  other-modules:    Wire
+  other-modules:
+    Url
+    Wire
   build-depends:
     , aeson
     , base

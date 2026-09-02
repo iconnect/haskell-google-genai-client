@@ -1,0 +1,123 @@
+{-# LANGUAGE OverloadedStrings #-}
+
+-- | Executes 'Request's against a 'Backend'. Hand-written.
+module GenAI.Client.Run
+  ( runRequest
+  , runRequestRaw
+  , buildUrl
+  , stripModelsPrefix
+  , authHeaders
+  , performHttp
+  , googleStatusOf
+  ) where
+
+import Control.Exception (try)
+import Data.Aeson (Value (..), decode, encode)
+import qualified Data.Aeson.KeyMap as KM
+import Data.Aeson.Types (parseJSON, parseMaybe)
+import qualified Data.ByteString.Lazy as LBS
+import Data.Maybe (fromMaybe, isJust)
+import Data.Text (Text)
+import qualified Data.Text as T
+import Data.Text.Encoding (decodeUtf8, encodeUtf8)
+import GHC.Clock (getMonotonicTime)
+import Katip (LogContexts, Severity (..), logFM, logStr, runKatipContextT)
+import qualified Network.HTTP.Client as HTTP
+import Network.HTTP.Types
+
+import GenAI.Client.Types
+
+-- | Pure: the full URL (with query string) a request resolves to on a backend.
+buildUrl :: Backend -> Request a -> Either GenAIError Text
+buildUrl backend req = do
+  path <- case (backend, reqResource req) of
+    (GeminiApi base, ModelMethod m verb) ->
+      Right (base <> "/models/" <> stripModelsPrefix m <> verb)
+    (GeminiApi base, RawPath p) -> Right (base <> "/" <> p)
+    (VertexAi base project location, ModelMethod m verb) ->
+      Right
+        ( base <> "/projects/" <> project <> "/locations/" <> location
+            <> "/publishers/google/models/" <> stripModelsPrefix m <> verb
+        )
+    (VertexAi {}, RawPath p) -> Left (UnsupportedOnBackend p)
+  pure (path <> renderQ (reqQuery req))
+  where
+    renderQ [] = ""
+    renderQ q = decodeUtf8 (renderQuery True [(encodeUtf8 k, Just (encodeUtf8 v)) | (k, v) <- q])
+
+-- | @models/gemini-2.5-flash@ → @gemini-2.5-flash@. Anything else untouched.
+stripModelsPrefix :: Text -> Text
+stripModelsPrefix m = fromMaybe m (T.stripPrefix "models/" m)
+
+authHeaders :: Auth -> IO [Header]
+authHeaders (ApiKey k) = pure [("x-goog-api-key", encodeUtf8 k)]
+authHeaders (BearerToken getToken) = do
+  t <- getToken
+  pure [(hAuthorization, "Bearer " <> encodeUtf8 t)]
+authHeaders NoAuth = pure []
+
+-- | Decodes @{"error": {...}}@ from a non-2xx body, if it has that shape.
+googleStatusOf :: LBS.ByteString -> Maybe GoogleStatus
+googleStatusOf body = case decode body of
+  Just (Object o) | Just err <- KM.lookup "error" o -> parseMaybe parseJSON err
+  _ -> Nothing
+
+-- | Runs one prepared HTTP request: catches 'HTTP.HttpException', logs
+-- method/URL/status/duration at Debug, errors at Error, maps non-2xx to 'ApiError'.
+-- Bodies are never logged.
+performHttp :: Env -> HTTP.Request -> IO (Either GenAIError (HTTP.Response LBS.ByteString))
+performHttp env hreq = do
+  t0 <- getMonotonicTime
+  res <- try (HTTP.httpLbs hreq (envManager env))
+  t1 <- getMonotonicTime
+  let ms = T.pack (show (round ((t1 - t0) * 1000) :: Int)) <> "ms"
+      desc = decodeUtf8 (HTTP.method hreq) <> " " <> T.pack (show (HTTP.getUri hreq))
+  case res of
+    Left e -> do
+      logAt ErrorS (desc <> " failed: " <> T.pack (show e))
+      pure (Left (HttpError e))
+    Right resp -> do
+      let st = statusCode (HTTP.responseStatus resp)
+      logAt DebugS (desc <> " -> " <> T.pack (show st) <> " " <> ms)
+      if st >= 200 && st < 300
+        then pure (Right resp)
+        else do
+          let gs = googleStatusOf (HTTP.responseBody resp)
+          logAt ErrorS (desc <> " -> " <> T.pack (show st) <> maybe "" ((": " <>) . googleStatusMessage) gs)
+          pure (Left (ApiError st gs (HTTP.responseBody resp)))
+  where
+    logAt sev msg =
+      runKatipContextT (envLogEnv env) (mempty :: LogContexts) "genai" (logFM sev (logStr msg))
+
+-- | Runs a request and returns the raw HTTP response (for header access).
+runRequestRaw :: Env -> Request a -> IO (Either GenAIError (HTTP.Response LBS.ByteString))
+runRequestRaw env req
+  | Just alt <- reqAlt req = pure (Left (UnsupportedOperation ("alt=" <> alt)))
+  | otherwise = case buildUrl (envBackend env) req of
+      Left e -> pure (Left e)
+      Right url -> do
+        auth <- authHeaders (envAuth env)
+        parsed <- try (HTTP.parseRequest (T.unpack url))
+        case parsed of
+          Left e -> pure (Left (HttpError e))
+          Right r0 ->
+            performHttp
+              env
+              r0
+                { HTTP.method = reqMethod req
+                , HTTP.requestHeaders =
+                    [(hAccept, "application/json"), (hUserAgent, "haskell-google-genai-client/0.2.0")]
+                      ++ auth
+                      ++ [(hContentType, "application/json") | isJust (reqBody req)]
+                , HTTP.requestBody = HTTP.RequestBodyLBS (maybe mempty encode (reqBody req))
+                }
+
+-- | Runs a request and decodes the body with the request's decoder.
+runRequest :: Env -> Request a -> IO (Either GenAIError a)
+runRequest env req = do
+  r <- runRequestRaw env req
+  pure $ case r of
+    Left e -> Left e
+    Right resp -> case reqDecode req (HTTP.responseBody resp) of
+      Left err -> Left (DecodeError (T.pack err) (HTTP.responseBody resp))
+      Right a -> Right a
