@@ -3,6 +3,7 @@
 module Wire (spec) where
 
 import Data.Aeson (decode, encode)
+import Data.Int (Int64)
 import Test.Hspec
 
 import GenAI.Client.Types
@@ -16,6 +17,9 @@ spec = describe "wire helpers" $ do
     decode "1.5" `shouldBe` (Nothing :: Maybe I64)
   it "I64 rejects a decimal string that overflows Int64 instead of wrapping" $
     decode "\"99999999999999999999\"" `shouldBe` (Nothing :: Maybe I64)
+  it "I64 round-trips the Int64 boundary values" $ do
+    decode (encode (I64 (maxBound :: Int64))) `shouldBe` Just (I64 maxBound)
+    decode (encode (I64 (minBound :: Int64))) `shouldBe` Just (I64 minBound)
   it "I64 encodes as a string (proto3 JSON)" $
     encode (I64 5) `shouldBe` "\"5\""
   it "Base64Bytes round-trips" $

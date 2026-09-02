@@ -111,6 +111,7 @@ test-suite tests
   main-is:          Test.hs
   default-language: GHC2021
   other-modules:
+    Instances
     Run
     Url
     Wire

@@ -4,6 +4,7 @@
 module Emit
   ( emitModel
   , emitApi
+  , emitInstances
   , header
   , haddock
   , quote
@@ -302,3 +303,114 @@ emitEndpoint ep =
                , "mk" <> qName <> " = " <> qName <> T.concat (map (const " Nothing") (epQuery ep))
                , ""
                ]
+
+-- | The test module: an 'Arbitrary' instance per generated type and a
+-- round-trip property per type.
+--
+-- Every instance is depth-guarded rather than merely scaled: @Arbitrary
+-- (Maybe a)@ is size-independent in QuickCheck, so a self-referential schema
+-- (@Schema@ refers to itself through @items@, @properties@ and @anyOf@) would
+-- recurse without bound under @scale@ alone. At size <= 1 the generator falls
+-- back to @mk<Name>@, which fills every non-positional field with its default
+-- and so cannot recurse.
+emitInstances :: Plan -> Text
+emitInstances plan =
+  T.unlines $
+    [ header (planRevision plan)
+    , "{-# LANGUAGE OverloadedStrings #-}"
+    , "{-# OPTIONS_GHC -Wno-orphans -Wno-unused-imports #-}"
+    , ""
+    , "-- | 'Arbitrary' instances and the JSON round-trip property for every"
+    , "-- generated type. Enum generators produce only the known constructors,"
+    , "-- never the @Unknown@ fallback, which would decode back to the real"
+    , "-- constructor and fail the property for the wrong reason."
+    , "module Instances (roundTripSpecs) where"
+    , ""
+    , "import Data.Aeson (FromJSON, ToJSON, Value (..), decode, encode)"
+    , "import qualified Data.ByteString as BS"
+    , "import Data.Text (Text)"
+    , "import qualified Data.Text as T"
+    , "import Data.Time (Day (..), UTCTime (..))"
+    , "import Test.Hspec"
+    , "import Test.Hspec.QuickCheck (prop)"
+    , "import Test.QuickCheck"
+    , ""
+    , "import GenAI.Client.Model"
+    , "import GenAI.Client.Types (Base64Bytes (..))"
+    , ""
+    , "instance Arbitrary Text where"
+    , "  arbitrary = T.pack <$> listOf (elements [\'a\' .. \'z\'])"
+    , ""
+    , "-- | Whole seconds only: sub-second precision does not survive aeson\'s"
+    , "-- RFC3339 round-trip reliably."
+    , "instance Arbitrary UTCTime where"
+    , "  arbitrary = do"
+    , "    d <- choose (0, 40000 :: Integer)"
+    , "    s <- choose (0, 86399 :: Integer)"
+    , "    pure (UTCTime (ModifiedJulianDay (40587 + d)) (fromInteger s))"
+    , ""
+    , "-- | A small, flat JSON value, used for every generated \'Value\' field in"
+    , "-- place of aeson\'s own instance. Never @Null@: a @Just Null@ in an"
+    , "-- optional field encodes as a JSON null, and proto3 JSON reads null as"
+    , "-- absent, so it decodes back as \'Nothing\'. Numbers are integral, so the"
+    , "-- \'Data.Scientific.Scientific\' hop is exact."
+    , "flatValue :: Gen Value"
+    , "flatValue ="
+    , "  oneof"
+    , "    [ String <$> arbitrary"
+    , "    , Bool <$> arbitrary"
+    , "    , Number . fromInteger <$> arbitrary"
+    , "    ]"
+    , ""
+    , "-- | Any byte string base64-encodes to something the strict decoder accepts."
+    , "instance Arbitrary Base64Bytes where"
+    , "  arbitrary = Base64Bytes . BS.pack <$> arbitrary"
+    , ""
+    , "roundTrip :: forall a. (Eq a, ToJSON a, FromJSON a) => a -> Bool"
+    , "roundTrip x = decode (encode x) == Just x"
+    , ""
+    ]
+      ++ concatMap emitArb (planTypes plan)
+      ++ [ "roundTripSpecs :: Spec"
+         , "roundTripSpecs = describe \"JSON round-trip\" $ do"
+         ]
+      ++ ["  prop " <> quote n <> " (roundTrip @" <> n <> ")" | n <- names]
+  where
+    names = concat [tName t : map enumName (tEnums t) | t <- planTypes plan]
+
+emitArb :: TypeDef -> [Text]
+emitArb t = concatMap enumArb (tEnums t) ++ dataArb
+  where
+    n = tName t
+    fs = tFields t
+    positional = filter fPositional fs
+    enumArb e =
+      [ "instance Arbitrary " <> enumName e <> " where"
+      , "  arbitrary = elements [" <> T.intercalate ", " [c | (c, _, _) <- enumCtors e] <> "]"
+      , ""
+      ]
+    dataArb
+      | null fs = ["instance Arbitrary " <> n <> " where", "  arbitrary = pure " <> n, ""]
+      | otherwise =
+          [ "instance Arbitrary " <> n <> " where"
+          , "  arbitrary = sized $ \\d ->"
+          , "    if d <= 1"
+          , "      then " <> base
+          , "      else scale (`div` 2) (" <> full <> ")"
+          , ""
+          ]
+    base
+      | null positional = "pure mk" <> n
+      | otherwise = "mk" <> n <> " <$> " <> T.intercalate " <*> " (map genOf positional)
+    full = n <> " <$> " <> T.intercalate " <*> " (map genOf fs)
+
+-- | The generator for one field. Everything goes through 'arbitrary' except
+-- 'Value', which uses the Null-free @flatValue@: aeson ships its own
+-- @Arbitrary Value@ (so we cannot replace it) and that instance generates
+-- @Null@, which no optional field can round-trip.
+genOf :: Field -> Text
+genOf f = case fType f of
+  "Value" -> "flatValue"
+  "Maybe Value" -> "liftArbitrary flatValue"
+  "[Value]" -> "listOf flatValue"
+  _ -> "arbitrary"
