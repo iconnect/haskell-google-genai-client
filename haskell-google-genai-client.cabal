@@ -82,6 +82,9 @@ executable genai-codegen
 
   if !flag(codegen)
     buildable: False
+  else
+    build-depends:
+     containers >= 0.7 && < 0.8
 
 test-suite codegen-tests
   import:           warnings
@@ -103,6 +106,9 @@ test-suite codegen-tests
 
   if !flag(codegen)
     buildable: False
+  else
+    build-depends:
+     containers >= 0.7 && < 0.8
 
 test-suite tests
   import:           warnings
