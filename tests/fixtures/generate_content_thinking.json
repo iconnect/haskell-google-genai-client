@@ -1,0 +1,18 @@
+{
+  "candidates": [
+    {
+      "content": {"parts": [{"text": "pong"}], "role": "model"},
+      "finishReason": "STOP",
+      "index": 0
+    }
+  ],
+  "usageMetadata": {
+    "promptTokenCount": 12,
+    "candidatesTokenCount": 1,
+    "totalTokenCount": 1226,
+    "thoughtsTokenCount": 1213,
+    "promptTokensDetails": [{"modality": "TEXT", "tokenCount": 12}]
+  },
+  "modelVersion": "gemini-2.5-flash",
+  "responseId": "abc123"
+}

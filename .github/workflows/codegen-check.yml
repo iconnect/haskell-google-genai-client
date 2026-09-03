@@ -1,0 +1,25 @@
+name: codegen-check
+on:
+  push:
+    branches: [master]
+  pull_request:
+jobs:
+  regenerate-and-diff:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: haskell-actions/setup@v2
+        with:
+          ghc-version: '9.10.3'
+          cabal-version: '3.12'
+      - run: cabal update
+      - run: cabal build -f codegen genai-codegen
+      - run: cabal run -f codegen genai-codegen -- --spec spec/generativelanguage-v1beta.json --lib lib --tests tests
+      - run: cabal run -f codegen genai-codegen -- --check --spec spec/generativelanguage-v1beta.json
+      - run: cabal test -f codegen codegen-tests
+      - name: Generated files must match the committed ones
+        run: |
+          git diff --exit-code || {
+            echo "::error::Generated files are out of date. Run: cabal run -f codegen genai-codegen -- --spec spec/generativelanguage-v1beta.json --lib lib --tests tests -- then commit the result."
+            exit 1
+          }

@@ -1,0 +1,18 @@
+{
+  "candidates": [
+    {
+      "content": {"parts": [{"text": "The capital of South Korea is **Seoul**.\n"}], "role": "model"},
+      "finishReason": "STOP",
+      "avgLogprobs": -0.024313041940331459
+    }
+  ],
+  "usageMetadata": {
+    "promptTokenCount": 7,
+    "candidatesTokenCount": 8,
+    "totalTokenCount": 15,
+    "promptTokensDetails": [{"modality": "TEXT", "tokenCount": 7}],
+    "candidatesTokensDetails": [{"modality": "TEXT", "tokenCount": 8}]
+  },
+  "modelVersion": "gemini-2.0-flash-001",
+  "responseId": "ZQc_aPa7JcXWnvgP3LDNsAw"
+}

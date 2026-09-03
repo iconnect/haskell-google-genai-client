@@ -8,3 +8,4 @@ cabal.project.local
 cabal.sandbox.config
 .vscode/
 .pre-commit-config.yaml
+tags

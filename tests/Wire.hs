@@ -1,0 +1,60 @@
+{-# LANGUAGE OverloadedStrings #-}
+
+module Wire (spec) where
+
+import Data.Aeson (decode, encode)
+import Data.Int (Int64)
+import Test.Hspec
+
+import GenAI.Client.Files (uploadBase)
+import GenAI.Client.Types
+
+spec :: Spec
+spec = describe "wire helpers" $ do
+  it "I64 decodes JSON strings and numbers" $ do
+    decode "\"123\"" `shouldBe` Just (I64 123)
+    decode "123" `shouldBe` Just (I64 123)
+    decode "\"12x\"" `shouldBe` (Nothing :: Maybe I64)
+    decode "1.5" `shouldBe` (Nothing :: Maybe I64)
+  it "I64 rejects a decimal string that overflows Int64 instead of wrapping" $
+    decode "\"99999999999999999999\"" `shouldBe` (Nothing :: Maybe I64)
+  it "I64 round-trips the Int64 boundary values" $ do
+    decode (encode (I64 (maxBound :: Int64))) `shouldBe` Just (I64 maxBound)
+    decode (encode (I64 (minBound :: Int64))) `shouldBe` Just (I64 minBound)
+  it "I64 encodes as a string (proto3 JSON)" $
+    encode (I64 5) `shouldBe` "\"5\""
+  it "Base64Bytes round-trips" $
+    decode (encode (Base64Bytes "hello")) `shouldBe` Just (Base64Bytes "hello")
+  it "Base64Bytes accepts the URL-safe alphabet" $
+    decode "\"-_8=\"" `shouldBe` (decode "\"+/8=\"" :: Maybe Base64Bytes)
+  it "Base64Bytes rejects invalid base64 instead of fabricating bytes" $
+    decode "\"!!!not base64!!!\"" `shouldBe` (Nothing :: Maybe Base64Bytes)
+  it "GoogleStatus tolerates missing fields" $
+    decode "{\"code\":429}" `shouldBe` Just (GoogleStatus 429 "" "" [])
+  it "query helpers render and drop Nothing" $ do
+    qInt "pageSize" (Just 3) `shouldBe` Just ("pageSize", "3")
+    qBool "x" (Just True) `shouldBe` Just ("x", "true")
+    qText "t" Nothing `shouldBe` Nothing
+  it "vertexAi derives the regional and global hosts" $ do
+    backendBaseUrl (vertexAi "p" "europe-west1")
+      `shouldBe` "https://europe-west1-aiplatform.googleapis.com/v1"
+    backendBaseUrl (vertexAi "p" "global")
+      `shouldBe` "https://aiplatform.googleapis.com/v1"
+  it "uploadBase inserts the upload/ segment before the version" $ do
+    -- GenAIError has no Eq (it embeds http-client's HttpException, which
+    -- has none), so success cases are unwrapped rather than compared with
+    -- shouldBe on the whole Either.
+    case uploadBase "https://generativelanguage.googleapis.com/v1beta" of
+      Right u -> u `shouldBe` "https://generativelanguage.googleapis.com/upload/v1beta"
+      Left e -> expectationFailure ("unexpected error: " <> show e)
+    case uploadBase "https://example.test/proxy/v1beta" of
+      Right u -> u `shouldBe` "https://example.test/proxy/upload/v1beta"
+      Left e -> expectationFailure ("unexpected error: " <> show e)
+  it "uploadBase tolerates a trailing slash on the base" $
+    case uploadBase "https://generativelanguage.googleapis.com/v1beta/" of
+      Right u -> u `shouldBe` "https://generativelanguage.googleapis.com/upload/v1beta"
+      Left e -> expectationFailure ("unexpected error: " <> show e)
+  it "uploadBase rejects a host with no path segment instead of guessing" $
+    case uploadBase "https://example.test" of
+      Left (MalformedBackendUrl u) -> u `shouldBe` "https://example.test"
+      other -> expectationFailure ("expected MalformedBackendUrl, got " <> show other)
