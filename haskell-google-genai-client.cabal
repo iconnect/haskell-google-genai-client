@@ -73,12 +73,12 @@ executable genai-codegen
     Emit
 
   build-depends:
-    , aeson
-    , base
-    , bytestring
-    , directory
-    , filepath
-    , text
+    , aeson >= 2.2.5 && < 2.3
+    , base >= 4.20.2 && < 4.21
+    , bytestring >= 0.12.2 && < 0.13
+    , directory >= 1.3.8 && < 1.4
+    , filepath >= 1.5.4 && < 1.6
+    , text >= 2.1.3 && < 2.2
 
   if !flag(codegen)
     buildable: False
@@ -95,11 +95,11 @@ test-suite codegen-tests
     Emit
 
   build-depends:
-    , aeson
-    , base
-    , bytestring
-    , hspec
-    , text
+    , aeson >= 2.2.5 && < 2.3
+    , base >= 4.20.2 && < 4.21
+    , bytestring >= 0.12.2 && < 0.13
+    , hspec >= 2.11.17 && < 2.12
+    , text >= 2.1.3 && < 2.2
 
   if !flag(codegen)
     buildable: False
