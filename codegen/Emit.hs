@@ -1,20 +1,8 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE QuasiQuotes #-}
 
--- | Renders a 'Plan' as Haskell source. Pure text; no pretty-printer.
---
--- Templates are @string-interpolate@ @[__i| ... |]@ blocks. Conventions that
--- keep the output byte-for-byte what the old fragment lists produced:
---
--- * A block has no trailing newline; 'paragraphs' joins blocks with the blank
---   line that separates top-level declarations.
--- * @__i@ strips the block's minimum indentation and inserts interpolated
---   values verbatim, without re-indenting their second and later lines. So a
---   multi-line interpolation (a 'numbered' list) sits at the block's base
---   column and its lines carry their own indentation.
--- * @__i@ processes @\\\\@, @\\t@ and @\\#@ escapes, nothing else: a literal
---   @\\@ in emitted code is written @\\\\@, every @#@ is written @\\#@, and
---   @"@ needs no escaping.
+-- | Renders a 'Plan' as Haskell source: the model types, the endpoint
+-- constructors and the test-suite instances. Pure text; no pretty-printer.
 module Emit
   ( emitModel
   , emitApi
@@ -69,6 +57,16 @@ numbered first rest = T.intercalate "\n" . zipWith (<>) (first : repeat rest)
 -- | Every line prefixed with the same indent.
 indented :: Text -> [Text] -> Text
 indented ind = numbered ind ind
+
+-- Template conventions. Every top-level declaration is one [__i| ... |]
+-- block. The quoter strips the block's common indentation, drops blank edge
+-- lines, and inserts interpolated values verbatim without re-indenting their
+-- later lines; so a block has no trailing newline, and a multi-line
+-- interpolation ('numbered', 'indented') sits at the block's base column with
+-- its lines carrying their own indentation. The quoter recognises only the
+-- escapes \\, \t and \#: a literal backslash is written \\, every # is
+-- written \#, and " needs no escaping. Inside #{...} keep to identifiers and
+-- plain applications; list comprehensions and sections are not accepted.
 
 -- | Top-level blocks, each followed by a blank line (the file ends with one).
 paragraphs :: [Text] -> Text
