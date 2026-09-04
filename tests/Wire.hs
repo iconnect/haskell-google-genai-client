@@ -41,17 +41,21 @@ spec = describe "wire helpers" $ do
       `shouldBe` "https://europe-west1-aiplatform.googleapis.com/v1"
     backendBaseUrl (vertexAi (VertexProject "p") (VertexLocation "global"))
       `shouldBe` "https://aiplatform.googleapis.com/v1"
-  it "withBaseUrl accepts an http(s) URL with a path and drops a trailing slash" $ do
-    -- GenAIError has no Eq (it embeds http-client's HttpException, which
-    -- has none), so success cases are unwrapped rather than compared with
-    -- shouldBe on the whole Either.
-    case withBaseUrl "https://example.test/proxy/v1beta/" geminiApi of
-      Right b -> backendBaseUrl b `shouldBe` "https://example.test/proxy/v1beta"
+  it "backendFromUrl reads a Gemini proxy base, dropping the trailing slash" $
+    case backendFromUrl "https://example.test/proxy/v1beta/" of
+      Right b@GeminiApi {} -> backendBaseUrl b `shouldBe` "https://example.test/proxy/v1beta"
+      other -> expectationFailure ("expected GeminiApi, got " <> show other)
+  it "backendFromUrl reads project and location out of a Vertex URL" $ do
+    -- A full endpoint URL parses to the same backend vertexAi derives.
+    case backendFromUrl "https://europe-west1-aiplatform.googleapis.com/v1/projects/p/locations/europe-west1/publishers/google/models/gemini-2.5-flash:generateContent" of
+      Right b -> b `shouldBe` vertexAi (VertexProject "p") (VertexLocation "europe-west1")
       Left e -> expectationFailure ("unexpected error: " <> show e)
-    case withBaseUrl "http://localhost:8080/v1" (vertexAi (VertexProject "p") (VertexLocation "global")) of
-      Right b@VertexAi {} -> backendBaseUrl b `shouldBe` "http://localhost:8080/v1"
-      other -> expectationFailure ("expected a VertexAi backend, got " <> show other)
-  it "withBaseUrl rejects what it cannot route" $
+    case backendFromUrl "http://localhost:8080/v1/projects/p/locations/global" of
+      Right b@(VertexAi _ project location) -> do
+        backendBaseUrl b `shouldBe` "http://localhost:8080/v1"
+        (project, location) `shouldBe` (VertexProject "p", VertexLocation "global")
+      other -> expectationFailure ("expected VertexAi, got " <> show other)
+  it "backendFromUrl rejects what it cannot route" $
     mapM_
       rejects
       [ "https://example.test" -- no path segment
@@ -60,6 +64,9 @@ spec = describe "wire helpers" $ do
       , "/v1beta" -- relative
       , "https://example.test/v1beta?x=1" -- query
       , "https://example.test/v1beta#frag" -- fragment
+      , "https://host/v1/project/p/locations/l" -- Vertex shape with a typo, not a Gemini proxy
+      , "https://host/v1/projects/p" -- Vertex shape cut short
+      , "https://host/v1/projects//locations/l" -- empty project
       ]
   it "uploadBase inserts the upload/ segment before the version" $ do
     uploadBase (uri "https://generativelanguage.googleapis.com/v1beta")
@@ -74,7 +81,7 @@ spec = describe "wire helpers" $ do
       Left (MalformedBackendUrl u) -> u `shouldBe` "https://example.test"
       other -> expectationFailure ("expected MalformedBackendUrl, got " <> show other)
   where
-    rejects u = case withBaseUrl u geminiApi of
+    rejects u = case backendFromUrl u of
       Left (MalformedBackendUrl u') -> u' `shouldBe` u
       other -> expectationFailure ("expected MalformedBackendUrl for " <> show u <> ", got " <> show other)
     rendersAs r expected = case r of

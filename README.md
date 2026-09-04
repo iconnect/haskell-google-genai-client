@@ -25,11 +25,13 @@ entry points from the two hand-written runtime modules: `runRequest` and
 | Vertex AI | `vertexAi (VertexProject p) (VertexLocation l)` | `BearerToken (IO Text)` | model-scoped endpoints only (see below) |
 
 `vertexAi` derives `https://{location}-aiplatform.googleapis.com/v1`
-(`https://aiplatform.googleapis.com/v1` for `global`). For another host
-(a proxy, a local mock) use `withBaseUrl "https://host/v1" backend`; it
-returns `Left (MalformedBackendUrl _)` unless the URL is absolute http(s)
-with a path segment and no query or fragment. `backendBaseUrl` renders the
-URL a backend will use. Getting the OAuth token is the caller's job
+(`https://aiplatform.googleapis.com/v1` for `global`). To build a backend
+from a URL you already have (a config value, a proxy, a local mock) use
+`backendFromUrl`: `/v1/projects/P/locations/L[/...]` paths give a
+`VertexAi` with the version segment as base, any other path without
+`projects`/`locations` segments gives a `GeminiApi` with the whole path as
+base, and anything else is `Left (MalformedBackendUrl _)`. `backendBaseUrl`
+renders the URL a backend will use. Getting the OAuth token is the caller's job
 (`gcloud auth print-access-token`, ADC, …).
 
 `generateContent`, `streamGenerateContent`, `countTokens`, `embedContent` and
@@ -109,7 +111,7 @@ proto3 JSON, which omits fields at their default value. The generator applies:
   CachedContent, `getModel`/`listModels`) called against `vertexAi`.
 - `UnsupportedOperation Text` — an operation this client doesn't implement,
   e.g. `streamGenerateContent`'s `alt=sse` streaming.
-- `MalformedBackendUrl Text` — `withBaseUrl` rejected a URL, or
+- `MalformedBackendUrl Text` — `backendFromUrl` rejected a URL, or
   `uploadFile`'s base URL has no path segment to insert `upload/` before
   (e.g. a bare host).
 
