@@ -9,7 +9,7 @@ module GenAI.Client.Types
   , VertexLocation (..)
   , geminiApi
   , vertexAi
-  , withBaseUrl
+  , backendFromUrl
   , backendBaseUrl
   , Auth (..)
 
@@ -31,6 +31,7 @@ module GenAI.Client.Types
   ) where
 
 import Control.Exception (Exception)
+import Control.Monad (guard)
 import Data.Aeson
 import Data.Aeson.Types (Parser)
 import Data.ByteString (ByteString)
@@ -38,7 +39,6 @@ import qualified Data.ByteString.Base64 as B64
 import qualified Data.ByteString.Base64.URL as B64U
 import qualified Data.ByteString.Lazy as LBS
 import Data.Int (Int64)
-import Data.List (dropWhileEnd)
 import qualified Data.Scientific as Sci
 import Data.Text (Text)
 import qualified Data.Text as T
@@ -59,9 +59,9 @@ newtype VertexLocation = VertexLocation Text
 
 -- | Where requests go. Both constructors carry the base URL up to and
 -- including the API version segment, without a trailing slash, query or
--- fragment. Build one with 'geminiApi' or 'vertexAi' and, for a
--- non-standard host, 'withBaseUrl'; the 'URI' inside is an implementation
--- detail callers never need to touch.
+-- fragment. Build one with 'geminiApi' or 'vertexAi', or parse one with
+-- 'backendFromUrl'; the 'URI' inside is an implementation detail callers
+-- never need to touch.
 data Backend
   = -- | Gemini Developer API. Default base: @https://generativelanguage.googleapis.com/v1beta@.
     GeminiApi !URI
@@ -91,28 +91,36 @@ httpsUri host path =
     , uriFragment = ""
     }
 
--- | Replaces a backend's base URL, keeping its kind and Vertex fields. This is
--- the one place a URL is parsed: the input must be an absolute @http@ or
--- @https@ URL with a host and at least one path segment (the API version),
--- and no query or fragment. A trailing slash is dropped. Anything else is
--- 'MalformedBackendUrl'.
-withBaseUrl :: Text -> Backend -> Either GenAIError Backend
-withBaseUrl url backend = case parseAbsoluteURI (T.unpack url) of
-  Just uri
-    | uriScheme uri `elem` ["http:", "https:"]
-    , Just auth <- uriAuthority uri
-    , not (null (uriRegName auth))
-    , any (/= '/') path
-    , null (uriQuery uri)
-    , null (uriFragment uri) ->
-        Right (replaceBase uri {uriPath = path})
-    where
-      path = dropWhileEnd (== '/') (uriPath uri)
-  _ -> Left (MalformedBackendUrl url)
-  where
-    replaceBase uri = case backend of
-      GeminiApi _ -> GeminiApi uri
-      VertexAi _ project location -> VertexAi uri project location
+-- | Parses a URL into a 'Backend'. This is the one place a URL is parsed.
+-- The input must be an absolute @http@ or @https@ URL with a host, at least
+-- one path segment, and no query or fragment. The path decides the backend:
+--
+-- * @\/{version}\/projects\/{project}\/locations\/{location}[\/...]@ is
+--   'VertexAi'. The base keeps only the version segment; anything after the
+--   location (a pasted @\/publishers\/google\/models\/...@ endpoint) is dropped.
+-- * A path with no @projects@ or @locations@ segment is 'GeminiApi', with the
+--   whole path as base, so a proxy prefix such as @\/proxy\/v1beta@ works.
+-- * A path mentioning @projects@ or @locations@ in any other shape is rejected
+--   rather than mistaken for a Gemini proxy.
+--
+-- Empty segments (a trailing or doubled slash) are dropped. Anything rejected
+-- is 'MalformedBackendUrl'.
+backendFromUrl :: Text -> Either GenAIError Backend
+backendFromUrl url = maybe (Left (MalformedBackendUrl url)) Right $ do
+  uri <- parseAbsoluteURI (T.unpack url)
+  guard (uriScheme uri `elem` ["http:", "https:"])
+  auth <- uriAuthority uri
+  guard (not (null (uriRegName auth)))
+  guard (null (uriQuery uri) && null (uriFragment uri))
+  let segments = filter (not . T.null) (T.splitOn "/" (T.pack (uriPath uri)))
+      withPath segs = uri {uriPath = T.unpack (T.concat (map ("/" <>) segs))}
+  case segments of
+    version : "projects" : project : "locations" : location : _ ->
+      pure (VertexAi (withPath [version]) (VertexProject project) (VertexLocation location))
+    [] -> Nothing
+    _
+      | any (`elem` ["projects", "locations"]) segments -> Nothing
+      | otherwise -> pure (GeminiApi (withPath segments))
 
 -- | The base URL a backend sends requests to, rendered.
 backendBaseUrl :: Backend -> Text
@@ -178,10 +186,9 @@ data GenAIError
     UnsupportedOnBackend !Text
   | -- | e.g. streaming.
     UnsupportedOperation !Text
-  | -- | A base URL was rejected: by 'withBaseUrl' (not absolute http(s), or
-    -- no path segment, or a query\/fragment), or by 'GenAI.Client.Files'
-    -- because it has no path segment to insert @upload\/@ before. Carries
-    -- the offending URL.
+  | -- | A URL was rejected: by 'backendFromUrl' (see its rules), or by
+    -- 'GenAI.Client.Files' because the base has no path segment to insert
+    -- @upload\/@ before. Carries the offending URL.
     MalformedBackendUrl !Text
   deriving (Show)
 

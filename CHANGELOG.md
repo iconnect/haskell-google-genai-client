@@ -10,10 +10,12 @@
   newtypes too.
 - `backendBaseUrl` is a total function returning the rendered URL as
   `Text`, not a (partial) record selector. Overriding the base URL by record
-  update no longer compiles; use the new `withBaseUrl :: Text -> Backend ->
-  Either GenAIError Backend`, which is the only place a URL is parsed and
-  fails with `MalformedBackendUrl` on anything that is not absolute http(s)
-  with a path segment and no query or fragment.
+  update no longer compiles; use the new `backendFromUrl :: Text -> Either
+  GenAIError Backend`, the only place a URL is parsed. It yields a `VertexAi`
+  for `/{version}/projects/P/locations/L[/...]` paths, a `GeminiApi` for any
+  other path free of `projects`/`locations` segments, and
+  `MalformedBackendUrl` for everything else (non-http(s), no path, query or
+  fragment, or a Vertex-looking path of the wrong shape).
 - `GenAI.Client.Run.buildUrl` returns a `URI`; `GenAI.Client.Files.uploadBase`
   takes and returns one. Request URLs are now built structurally and handed
   to http-client with `requestFromURI` instead of being concatenated and
