@@ -9,3 +9,4 @@ cabal.sandbox.config
 .vscode/
 .pre-commit-config.yaml
 tags
+docs/superpowers/

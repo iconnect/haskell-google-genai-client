@@ -22,12 +22,15 @@ entry points from the two hand-written runtime modules: `runRequest` and
 | Backend | Constructor | Auth | Endpoints |
 |---|---|---|---|
 | Gemini Developer API | `geminiApi` | `ApiKey key` (header `x-goog-api-key`) | all generated endpoints |
-| Vertex AI | `vertexAi project location` | `BearerToken (IO Text)` | model-scoped endpoints only (see below) |
+| Vertex AI | `vertexAi (VertexProject p) (VertexLocation l)` | `BearerToken (IO Text)` | model-scoped endpoints only (see below) |
 
 `vertexAi` derives `https://{location}-aiplatform.googleapis.com/v1`
-(`https://aiplatform.googleapis.com/v1` for `global`); override
-`backendBaseUrl` if you need another host. Getting the OAuth token is the
-caller's job (`gcloud auth print-access-token`, ADC, …).
+(`https://aiplatform.googleapis.com/v1` for `global`). For another host
+(a proxy, a local mock) use `withBaseUrl "https://host/v1" backend`; it
+returns `Left (MalformedBackendUrl _)` unless the URL is absolute http(s)
+with a path segment and no query or fragment. `backendBaseUrl` renders the
+URL a backend will use. Getting the OAuth token is the caller's job
+(`gcloud auth print-access-token`, ADC, …).
 
 `generateContent`, `streamGenerateContent`, `countTokens`, `embedContent` and
 `batchEmbedContents` are model-scoped: their model argument accepts a bare
@@ -106,8 +109,9 @@ proto3 JSON, which omits fields at their default value. The generator applies:
   CachedContent, `getModel`/`listModels`) called against `vertexAi`.
 - `UnsupportedOperation Text` — an operation this client doesn't implement,
   e.g. `streamGenerateContent`'s `alt=sse` streaming.
-- `MalformedBackendUrl Text` — `uploadFile`'s base URL has no path segment
-  to insert `upload/` before (e.g. a bare host).
+- `MalformedBackendUrl Text` — `withBaseUrl` rejected a URL, or
+  `uploadFile`'s base URL has no path segment to insert `upload/` before
+  (e.g. a bare host).
 
 ## Logging
 

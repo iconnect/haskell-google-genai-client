@@ -4,6 +4,7 @@ module Wire (spec) where
 
 import Data.Aeson (decode, encode)
 import Data.Int (Int64)
+import Network.URI (URI, parseURI, uriToString)
 import Test.Hspec
 
 import GenAI.Client.Files (uploadBase)
@@ -36,25 +37,50 @@ spec = describe "wire helpers" $ do
     qBool "x" (Just True) `shouldBe` Just ("x", "true")
     qText "t" Nothing `shouldBe` Nothing
   it "vertexAi derives the regional and global hosts" $ do
-    backendBaseUrl (vertexAi "p" "europe-west1")
+    backendBaseUrl (vertexAi (VertexProject "p") (VertexLocation "europe-west1"))
       `shouldBe` "https://europe-west1-aiplatform.googleapis.com/v1"
-    backendBaseUrl (vertexAi "p" "global")
+    backendBaseUrl (vertexAi (VertexProject "p") (VertexLocation "global"))
       `shouldBe` "https://aiplatform.googleapis.com/v1"
-  it "uploadBase inserts the upload/ segment before the version" $ do
+  it "withBaseUrl accepts an http(s) URL with a path and drops a trailing slash" $ do
     -- GenAIError has no Eq (it embeds http-client's HttpException, which
     -- has none), so success cases are unwrapped rather than compared with
     -- shouldBe on the whole Either.
-    case uploadBase "https://generativelanguage.googleapis.com/v1beta" of
-      Right u -> u `shouldBe` "https://generativelanguage.googleapis.com/upload/v1beta"
+    case withBaseUrl "https://example.test/proxy/v1beta/" geminiApi of
+      Right b -> backendBaseUrl b `shouldBe` "https://example.test/proxy/v1beta"
       Left e -> expectationFailure ("unexpected error: " <> show e)
-    case uploadBase "https://example.test/proxy/v1beta" of
-      Right u -> u `shouldBe` "https://example.test/proxy/upload/v1beta"
-      Left e -> expectationFailure ("unexpected error: " <> show e)
+    case withBaseUrl "http://localhost:8080/v1" (vertexAi (VertexProject "p") (VertexLocation "global")) of
+      Right b@VertexAi {} -> backendBaseUrl b `shouldBe` "http://localhost:8080/v1"
+      other -> expectationFailure ("expected a VertexAi backend, got " <> show other)
+  it "withBaseUrl rejects what it cannot route" $
+    mapM_
+      rejects
+      [ "https://example.test" -- no path segment
+      , "https://example.test/" -- still no path segment
+      , "gopher://host/path" -- not http(s)
+      , "/v1beta" -- relative
+      , "https://example.test/v1beta?x=1" -- query
+      , "https://example.test/v1beta#frag" -- fragment
+      ]
+  it "uploadBase inserts the upload/ segment before the version" $ do
+    uploadBase (uri "https://generativelanguage.googleapis.com/v1beta")
+      `rendersAs` "https://generativelanguage.googleapis.com/upload/v1beta"
+    uploadBase (uri "https://example.test/proxy/v1beta")
+      `rendersAs` "https://example.test/proxy/upload/v1beta"
   it "uploadBase tolerates a trailing slash on the base" $
-    case uploadBase "https://generativelanguage.googleapis.com/v1beta/" of
-      Right u -> u `shouldBe` "https://generativelanguage.googleapis.com/upload/v1beta"
-      Left e -> expectationFailure ("unexpected error: " <> show e)
+    uploadBase (uri "https://generativelanguage.googleapis.com/v1beta/")
+      `rendersAs` "https://generativelanguage.googleapis.com/upload/v1beta"
   it "uploadBase rejects a host with no path segment instead of guessing" $
-    case uploadBase "https://example.test" of
+    case uploadBase (uri "https://example.test") of
       Left (MalformedBackendUrl u) -> u `shouldBe` "https://example.test"
       other -> expectationFailure ("expected MalformedBackendUrl, got " <> show other)
+  where
+    rejects u = case withBaseUrl u geminiApi of
+      Left (MalformedBackendUrl u') -> u' `shouldBe` u
+      other -> expectationFailure ("expected MalformedBackendUrl for " <> show u <> ", got " <> show other)
+    rendersAs r expected = case r of
+      Right u -> uriToString id u "" `shouldBe` expected
+      Left e -> expectationFailure ("unexpected error: " <> show e)
+
+-- | Test-only: 'uploadBase' takes the already-parsed URI a 'Backend' holds.
+uri :: String -> URI
+uri s = maybe (error ("test URI does not parse: " <> s)) id (parseURI s)
