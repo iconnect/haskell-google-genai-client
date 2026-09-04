@@ -1,6 +1,6 @@
 cabal-version:      3.0
 name:               haskell-google-genai-client
-version:            0.2.0
+version:            0.3.0
 synopsis:           Gemini API client (Gemini API and Vertex AI backends)
 description:
   Haskell client for Google's Gemini models. Data types and endpoints are
@@ -58,6 +58,7 @@ library
     , http-client        >=0.7  && <0.8
     , http-types         >=0.12 && <0.13
     , katip              >=0.8  && <0.9
+    , network-uri        >=2.6  && <2.7
     , scientific         >=0.3  && <0.4
     , text               >=2.0  && <2.2
     , time               >=1.12 && <1.15
@@ -135,6 +136,7 @@ test-suite tests
     , http-client
     , http-client-tls
     , katip
+    , network-uri
       -- Lower bound: a known-good floor for the Arbitrary (Map k v)
       -- instance, which Instances.hs relies on (it emits no such instance
       -- itself).

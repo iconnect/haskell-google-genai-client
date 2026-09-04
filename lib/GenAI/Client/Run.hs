@@ -18,6 +18,7 @@ import Control.Exception (try)
 import Data.Aeson (Value (..), decode, encode)
 import qualified Data.Aeson.KeyMap as KM
 import Data.Aeson.Types (parseJSON, parseMaybe)
+import qualified Data.ByteString.Char8 as B8
 import qualified Data.ByteString.Lazy as LBS
 import Data.Maybe (fromMaybe, isJust)
 import qualified Data.Set as Set
@@ -28,26 +29,30 @@ import GHC.Clock (getMonotonicTime)
 import Katip (LogContexts, Severity (..), logFM, logStr, runKatipContextT)
 import qualified Network.HTTP.Client as HTTP
 import Network.HTTP.Types
+import Network.URI (URI (..))
 
 import GenAI.Client.Types
 
 -- | Pure: the full URL (with query string) a request resolves to on a backend.
-buildUrl :: Backend -> Request a -> Either GenAIError Text
+-- The path is appended to the backend's base path structurally; nothing is
+-- re-parsed.
+buildUrl :: Backend -> Request a -> Either GenAIError URI
 buildUrl backend req = do
-  path <- case (backend, reqResource req) of
+  (base, path) <- case (backend, reqResource req) of
     (GeminiApi base, ModelMethod m verb) ->
-      Right (base <> "/models/" <> stripModelsPrefix m <> verb)
-    (GeminiApi base, RawPath p) -> Right (base <> "/" <> p)
-    (VertexAi base project location, ModelMethod m verb) ->
+      Right (base, "/models/" <> stripModelsPrefix m <> verb)
+    (GeminiApi base, RawPath p) -> Right (base, "/" <> p)
+    (VertexAi base (VertexProject project) (VertexLocation location), ModelMethod m verb) ->
       Right
-        ( base <> "/projects/" <> project <> "/locations/" <> location
+        ( base
+        , "/projects/" <> project <> "/locations/" <> location
             <> "/publishers/google/models/" <> stripModelsPrefix m <> verb
         )
     (VertexAi {}, RawPath p) -> Left (UnsupportedOnBackend p)
-  pure (path <> renderQ (reqQuery req))
+  pure base {uriPath = uriPath base <> T.unpack path, uriQuery = renderQ (reqQuery req)}
   where
     renderQ [] = ""
-    renderQ q = decodeUtf8 (renderQuery True [(encodeUtf8 k, Just (encodeUtf8 v)) | (k, v) <- q])
+    renderQ q = B8.unpack (renderQuery True [(encodeUtf8 k, Just (encodeUtf8 v)) | (k, v) <- q])
 
 -- | @models/gemini-2.5-flash@ → @gemini-2.5-flash@. Anything else untouched.
 stripModelsPrefix :: Text -> Text
@@ -142,16 +147,18 @@ runRequestRaw env req
       Left e -> pure (Left e)
       Right url -> do
         auth <- authHeaders (envAuth env)
-        parsed <- try (HTTP.parseRequest (T.unpack url))
+        -- Throws only for a scheme that is not http(s), which 'withBaseUrl'
+        -- rejects but a constructor-built 'Backend' can still carry.
+        parsed <- try (HTTP.requestFromURI url)
         case parsed of
-          Left e -> pure (Left (HttpError e))
+          Left e -> pure (Left (HttpError (sanitiseHttpException e)))
           Right r0 ->
             performHttp
               env
               r0
                 { HTTP.method = reqMethod req
                 , HTTP.requestHeaders =
-                    [(hAccept, "application/json"), (hUserAgent, "haskell-google-genai-client/0.2.0")]
+                    [(hAccept, "application/json"), (hUserAgent, "haskell-google-genai-client/0.3.0")]
                       ++ auth
                       ++ [(hContentType, "application/json") | isJust (reqBody req)]
                 , HTTP.requestBody = HTTP.RequestBodyLBS (maybe mempty encode (reqBody req))

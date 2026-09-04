@@ -5,8 +5,12 @@ module GenAI.Client.Types
   ( -- * Environment
     Env (..)
   , Backend (..)
+  , VertexProject (..)
+  , VertexLocation (..)
   , geminiApi
   , vertexAi
+  , withBaseUrl
+  , backendBaseUrl
   , Auth (..)
 
     -- * Requests
@@ -34,6 +38,7 @@ import qualified Data.ByteString.Base64 as B64
 import qualified Data.ByteString.Base64.URL as B64U
 import qualified Data.ByteString.Lazy as LBS
 import Data.Int (Int64)
+import Data.List (dropWhileEnd)
 import qualified Data.Scientific as Sci
 import Data.Text (Text)
 import qualified Data.Text as T
@@ -42,32 +47,80 @@ import qualified Data.Text.Read as TR
 import Katip (LogEnv)
 import Network.HTTP.Client (HttpException, Manager)
 import Network.HTTP.Types (Method)
+import Network.URI (URI (..), URIAuth (..), parseAbsoluteURI, uriToString)
+
+-- | A Google Cloud project id, for 'VertexAi'.
+newtype VertexProject = VertexProject Text
+  deriving (Show, Eq)
+
+-- | A Vertex AI region (@europe-west1@, ...) or @global@.
+newtype VertexLocation = VertexLocation Text
+  deriving (Show, Eq)
 
 -- | Where requests go. Both constructors carry the base URL up to and
--- including the API version segment, without a trailing slash.
+-- including the API version segment, without a trailing slash, query or
+-- fragment. Build one with 'geminiApi' or 'vertexAi' and, for a
+-- non-standard host, 'withBaseUrl'; the 'URI' inside is an implementation
+-- detail callers never need to touch.
 data Backend
   = -- | Gemini Developer API. Default base: @https://generativelanguage.googleapis.com/v1beta@.
-    GeminiApi {backendBaseUrl :: !Text}
+    GeminiApi !URI
   | -- | Vertex AI. Default base: @https://{location}-aiplatform.googleapis.com/v1@,
     -- or @https://aiplatform.googleapis.com/v1@ when location is @global@.
-    VertexAi {backendBaseUrl :: !Text, vertexProject :: !Text, vertexLocation :: !Text}
+    VertexAi !URI !VertexProject !VertexLocation
   deriving (Show, Eq)
 
 geminiApi :: Backend
-geminiApi = GeminiApi "https://generativelanguage.googleapis.com/v1beta"
+geminiApi = GeminiApi (httpsUri "generativelanguage.googleapis.com" "/v1beta")
 
--- | @vertexAi project location@. Override 'backendBaseUrl' afterwards if you
--- need a non-standard host.
-vertexAi :: Text -> Text -> Backend
-vertexAi project location =
-  VertexAi
-    { backendBaseUrl =
-        if location == "global"
-          then "https://aiplatform.googleapis.com/v1"
-          else "https://" <> location <> "-aiplatform.googleapis.com/v1"
-    , vertexProject = project
-    , vertexLocation = location
+vertexAi :: VertexProject -> VertexLocation -> Backend
+vertexAi project location@(VertexLocation l) = VertexAi (httpsUri host "/v1") project location
+  where
+    host
+      | l == "global" = "aiplatform.googleapis.com"
+      | otherwise = l <> "-aiplatform.googleapis.com"
+
+-- | Built structurally rather than parsed, so the defaults stay total.
+httpsUri :: Text -> String -> URI
+httpsUri host path =
+  URI
+    { uriScheme = "https:"
+    , uriAuthority = Just (URIAuth "" (T.unpack host) "")
+    , uriPath = path
+    , uriQuery = ""
+    , uriFragment = ""
     }
+
+-- | Replaces a backend's base URL, keeping its kind and Vertex fields. This is
+-- the one place a URL is parsed: the input must be an absolute @http@ or
+-- @https@ URL with a host and at least one path segment (the API version),
+-- and no query or fragment. A trailing slash is dropped. Anything else is
+-- 'MalformedBackendUrl'.
+withBaseUrl :: Text -> Backend -> Either GenAIError Backend
+withBaseUrl url backend = case parseAbsoluteURI (T.unpack url) of
+  Just uri
+    | uriScheme uri `elem` ["http:", "https:"]
+    , Just auth <- uriAuthority uri
+    , not (null (uriRegName auth))
+    , any (/= '/') path
+    , null (uriQuery uri)
+    , null (uriFragment uri) ->
+        Right (replaceBase uri {uriPath = path})
+    where
+      path = dropWhileEnd (== '/') (uriPath uri)
+  _ -> Left (MalformedBackendUrl url)
+  where
+    replaceBase uri = case backend of
+      GeminiApi _ -> GeminiApi uri
+      VertexAi _ project location -> VertexAi uri project location
+
+-- | The base URL a backend sends requests to, rendered.
+backendBaseUrl :: Backend -> Text
+backendBaseUrl backend = T.pack (uriToString id uri "")
+  where
+    uri = case backend of
+      GeminiApi u -> u
+      VertexAi u _ _ -> u
 
 data Auth
   = -- | Sent as the @x-goog-api-key@ header (never in the URL).
@@ -125,8 +178,10 @@ data GenAIError
     UnsupportedOnBackend !Text
   | -- | e.g. streaming.
     UnsupportedOperation !Text
-  | -- | A 'Backend' base URL has no path segment to insert @upload\/@
-    -- before (e.g. it is just a bare host). Carries the offending URL.
+  | -- | A base URL was rejected: by 'withBaseUrl' (not absolute http(s), or
+    -- no path segment, or a query\/fragment), or by 'GenAI.Client.Files'
+    -- because it has no path segment to insert @upload\/@ before. Carries
+    -- the offending URL.
     MalformedBackendUrl !Text
   deriving (Show)
 

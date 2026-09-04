@@ -1,5 +1,29 @@
 # Changelog
 
+## 0.3.0 — unreleased
+
+### Changed (breaking)
+
+- `Backend` no longer has record fields. `GeminiApi` and `VertexAi` carry a
+  parsed `network-uri` `URI`, and `VertexAi` takes `VertexProject` and
+  `VertexLocation` newtypes instead of bare `Text`. `vertexAi` takes the
+  newtypes too.
+- `backendBaseUrl` is a total function returning the rendered URL as
+  `Text`, not a (partial) record selector. Overriding the base URL by record
+  update no longer compiles; use the new `withBaseUrl :: Text -> Backend ->
+  Either GenAIError Backend`, which is the only place a URL is parsed and
+  fails with `MalformedBackendUrl` on anything that is not absolute http(s)
+  with a path segment and no query or fragment.
+- `GenAI.Client.Run.buildUrl` returns a `URI`; `GenAI.Client.Files.uploadBase`
+  takes and returns one. Request URLs are now built structurally and handed
+  to http-client with `requestFromURI` instead of being concatenated and
+  re-parsed.
+
+### Internal
+
+- `codegen/Emit.hs` renders with `string-interpolate` templates. Generated
+  output is unchanged.
+
 ## 0.2.0 — 2026-09-02
 
 A deliberate **breaking rewrite**. There is no compatibility shim; see

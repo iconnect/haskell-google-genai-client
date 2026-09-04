@@ -25,11 +25,13 @@ import Control.Exception (try)
 import Data.Aeson (eitherDecode, encode)
 import qualified Data.ByteString.Char8 as B8
 import qualified Data.ByteString.Lazy as LBS
+import Data.List (dropWhileEnd)
 import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Text.Encoding (encodeUtf8)
 import qualified Network.HTTP.Client as HTTP
 import Network.HTTP.Types (hContentType)
+import Network.URI (URI (..), uriToString)
 
 import GenAI.Client.Model
 import GenAI.Client.Run (authHeaders, performHttp, sanitiseHttpException)
@@ -50,16 +52,12 @@ data UploadSpec = UploadSpec
 -- tolerated. Fails with 'MalformedBackendUrl' when the base has no path
 -- segment after the host to insert @upload\/@ before -- guessing at a URL
 -- shape would produce a silently wrong endpoint instead.
-uploadBase :: Text -> Either GenAIError Text
-uploadBase base0
-  | "/" `T.isInfixOf` afterScheme = Right (prefix <> "upload/" <> version)
-  | otherwise = Left (MalformedBackendUrl base0)
+uploadBase :: URI -> Either GenAIError URI
+uploadBase base
+  | T.null version = Left (MalformedBackendUrl (T.pack (uriToString id base "")))
+  | otherwise = Right base {uriPath = T.unpack (prefix <> "upload/" <> version)}
   where
-    base = T.dropWhileEnd (== '/') base0
-    afterScheme = case T.breakOn "://" base of
-      (_, rest) | not (T.null rest) -> T.drop 3 rest
-      _ -> base
-    (prefix, version) = T.breakOnEnd "/" base
+    (prefix, version) = T.breakOnEnd "/" (T.pack (dropWhileEnd (== '/') (uriPath base)))
 
 -- | Uploads bytes via the resumable protocol (start, then upload+finalize)
 -- and returns the resulting 'File'. The returned 'File' may still be
@@ -76,7 +74,7 @@ uploadFile env spec = case envBackend env of
             mkCreateFileRequest
               { createFileRequestFile = Just mkFile {fileDisplayName = uploadDisplayName spec}
               }
-      r0try <- try (HTTP.parseRequest (T.unpack (base' <> "/files")))
+      r0try <- try (HTTP.requestFromURI base' {uriPath = uriPath base' <> "/files"})
       case r0try of
         Left e -> pure (Left (HttpError (sanitiseHttpException e)))
         Right r0 -> do
