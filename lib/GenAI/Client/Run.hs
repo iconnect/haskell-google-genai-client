@@ -147,7 +147,7 @@ runRequestRaw env req
       Left e -> pure (Left e)
       Right url -> do
         auth <- authHeaders (envAuth env)
-        -- Throws only for a scheme that is not http(s), which 'withBaseUrl'
+        -- Throws only for a scheme that is not http(s), which 'backendFromUrl'
         -- rejects but a constructor-built 'Backend' can still carry.
         parsed <- try (HTTP.requestFromURI url)
         case parsed of
